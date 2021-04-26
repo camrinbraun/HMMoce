@@ -28,7 +28,56 @@ plotHMM <- function(distr, track, dateVec, ptt, known = NULL, resid = FALSE, beh
 
   ## Show movement as animation
   #if(show.movie) show.movie(s)
-
+  
+  #### One-state
+  if(dim(distr)[1]==1){
+    # calculated track
+    xl <- c(floor(min(track$lon)), ceiling(max(track$lon)))
+    yl <- c(floor(min(track$lat)), ceiling(max(track$lat)))
+    graphics::plot(track$lon, track$lat, type = 'n', main = 'Estimated movements', ylab = 'Latitude', xlab = 'Longitude', xlim = xl, ylim = yl)
+    graphics::rect(graphics::par("usr")[1], graphics::par("usr")[3], graphics::par("usr")[2], graphics::par("usr")[4], col = "steelblue1")
+    fields::world(add = TRUE, fill = TRUE, col = 'grey60')
+    
+    if(!is.null(known)){
+      graphics::lines(known$lon, known$lat, col = 'white')
+    }
+    
+    graphics::lines(track$lon, track$lat, col = 'black')
+    
+    graphics::points(track$lon[1], track$lat[1], bg = 'green', pch = 21)
+    TT <- length(track$lon)
+    graphics::points(track$lon[TT], track$lat[TT], bg = 'red', pch = 21)
+    
+    if(save.plot) grDevices::dev.off()
+    
+    ## NOT YET FUNCTIONAL
+    ## Simple diagnostics plot ###
+    ## Resample SST
+    #if(save.plot) grDevices::pdf('../plot/sphmmDiagn.pdf',width=7,height=7)
+    #if(!save.plot)
+    if (resid){
+      # do nothing for now
+      #grDevices::dev.new()
+      #graphics::par(mfrow = c(2,2))
+      #ssterr <- sst - lsst$sst
+      #sdsst <- sqrt(stats::var(ssterr))
+      #ssterr <- ssterr / sdsst
+      #lonerr <- sphmm$meanlon - lsst$lon
+      #sdlon <- sqrt(stats::var(lonerr))
+      #lonerr <- lonerr / sdlon
+      #graphics::plot(track$date[ind], ssterr, xlab = 'Date', ylab = 'SST residual', main = 'Residuals through time', ylim = c(-3,3), pch = ".", cex = 3)
+      #graphics::abline(h = c(-2,0,2), col = 'grey', lwd = 2, lty = 2)
+      #stats::qqnorm(ssterr, main = 'QQ-plot of residuals', pch = ".", cex = 2)
+      #graphics::abline(a = 0, b = 1, col = 'grey', lwd = 2)
+      #graphics::plot(track$date[ind], lonerr, xlab = 'Date', ylab = 'Longitude residual', ylim = c(-3,3), pch = ".", cex = 3)
+      #graphics::abline(h = c(-2,0,2), col = 'grey', lwd = 2, lty = 2)
+      #stats::qqnorm(lonerr, main = '', pch = ".", cex = 2)
+      #graphics::abline(a = 0, b = 1, col = 'grey', lwd = 2)
+    }
+  }
+  
+  #### Two-state
+  else{
   ## Calc behaviour
   # get states from s
   sv <- -(apply(distr[1,,,], 1, sum) > apply(distr[2,,,], 1, sum)) + 1
@@ -97,5 +146,6 @@ plotHMM <- function(distr, track, dateVec, ptt, known = NULL, resid = FALSE, beh
     #graphics::abline(a = 0, b = 1, col = 'grey', lwd = 2)
   }
   #if(save.plot) grDevices::dev.off()
-
+  }
+  
   }
