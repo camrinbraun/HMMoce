@@ -4,7 +4,6 @@
 #'
 #' @param distr is output array from \code{hmm.smoother}
 #' @param track is output dataframe from \code{calc.track}
-#' @param ptt is individual identification number
 #' @param known is 3 column data frame containing date, lat, lon of known
 #'   movement track. This is only useful for comparing HMMoce results to known
 #'   track collected by SPOT or GPS, for example. Default is NULL.
@@ -14,18 +13,22 @@
 #' @param makePlot is logical indicating whether to make a plot of the RD
 #' @param save.plot is logical indicating whether you want the plot written to
 #'   disk using \code{pdf}.
+#' @param filename is output filename if save.plot is TRUE. Default is NULL.
 #' @importFrom fields "world"
 #'
 #' @return a list of one raster layer for the combined RD and one raster brick (2 layers) for the individual behavior RDs.
 #' @export
 
-plotRD <- function(distr, track, ptt, known=NULL, g, xlims, ylims, makePlot = TRUE, save.plot=FALSE){
+plotRD <- function(distr, track, known=NULL, g, xlims, ylims, makePlot = TRUE, save.plot=FALSE, filename = NULL){
   
   crs <- "+proj=longlat +datum=WGS84 +ellps=WGS84"
   rd.cols <- colorRampPalette(rev(RColorBrewer::brewer.pal(11, 'RdYlGn')))
   
+  if (is.null(xlims)) xlims <- c(min(g$lon) - 0.1 * min(g$lon), max(g$lon) + 0.1 * max(g$lon))
+  if (is.null(ylims)) ylims <- c(min(g$lat) - 0.1 * min(g$lat), max(g$lat) + 0.1 * max(g$lat))
+
   #### One-state
-  if(dim(distr)[1]==1){
+  if (dim(distr)[1] == 1){
     # generate summed across time pdf
     norm <- array(NA, dim=dim(distr)[c(3,4,2,1)])
     for (i in 1:dim(norm)[3]){
@@ -59,7 +62,7 @@ plotRD <- function(distr, track, ptt, known=NULL, g, xlims, ylims, makePlot = TR
       # get some plot indices
       TT <- length(track$lon)
       
-      if(save.plot) grDevices::pdf(paste(ptt, '_RD.pdf', sep = ''), width = 7, height = 12)
+      if(save.plot) grDevices::pdf(paste(filename, '_RD.pdf', sep = ''), width = 7, height = 12)
       
       # BUILD IT
       nf <- layout(matrix(c(1,2), 1, 2, byrow=T), widths=c(7,2), heights=4)
@@ -80,12 +83,14 @@ plotRD <- function(distr, track, ptt, known=NULL, g, xlims, ylims, makePlot = TR
       image(1, norm.mid, t(as.matrix(norm.mid)), breaks=norm.breaks, col=plot.rd.col, axes=FALSE, xlab="",
             ylab='Expected Proportion of Time Spent')
       axis(2, at=c(.05, .25, .5, .75, .95), labels=paste(rev(c(5, 25, 50, 75, 95)), '%'));box();
-    
+      
+      #specific to one-state
+      behavRD_input <- NULL
     }
   }
   
   #### Two-state
-  else{
+  if (dim(distr)[1] == 2){
     p.1 <- apply(distr[1,,,], 1, sum)
     p.2 <- apply(distr[2,,,], 1, sum)
     sv <- -(apply(distr[1,,,], 1, sum) > apply(distr[2,,,], 1, sum)) + 1
@@ -136,7 +141,7 @@ plotRD <- function(distr, track, ptt, known=NULL, g, xlims, ylims, makePlot = TR
       idx2 <- which((sv+1) == 2)
       TT <- length(track$lon)
       
-      if(save.plot) grDevices::pdf(paste(ptt, '_RD.pdf', sep = ''), width = 7, height = 12)
+      if(save.plot) grDevices::pdf(paste(filename, '_RD.pdf', sep = ''), width = 7, height = 12)
       
       # BUILD IT
       nf <- layout(matrix(c(1,2,
@@ -145,7 +150,7 @@ plotRD <- function(distr, track, ptt, known=NULL, g, xlims, ylims, makePlot = TR
       #layout.show(nf)
       
       # COMBINED PANEL
-      par (mar=mar.bottom)
+      par(mar = mar.bottom)
       
       raster::image(all, maxpixels=raster::ncell(all), xlim=xlims, ylim=ylims, axes=F,
                     col=plot.rd.col, breaks=norm.breaks, xlab='', ylab='')#, main='All')#, zlim=c(.05,1))#, axes=F)#, main=dt.idx) #, breaks=zbreaks
@@ -161,7 +166,7 @@ plotRD <- function(distr, track, ptt, known=NULL, g, xlims, ylims, makePlot = TR
       axis(2, at=c(.05, .25, .5, .75, .95), labels=paste(rev(c(5, 25, 50, 75, 95)), '%'));box();
       
       # MIGRATORY PANEL
-      par (mar=mar.bottom)
+      par(mar = mar.bottom)
       raster::image(norm[[1]], maxpixels=raster::ncell(norm[[1]]), xlim=xlims, ylim=ylims, axes=F,
                     col=plot.rd.col, breaks=norm.breaks, xlab='', ylab='')#, main='Migratory')#, zlim=c(.05,1))#, axes=F)#, main=dt.idx) #, breaks=zbreaks
       axis(1, at=x.at, labels=FALSE)
@@ -193,11 +198,11 @@ plotRD <- function(distr, track, ptt, known=NULL, g, xlims, ylims, makePlot = TR
       plot.new()
       
       if(save.plot) grDevices::dev.off()
+      
+      #specific to two-state
+      behavRD_input <- norm
     }
-    
-    return(list(allRD = all, behavRD = norm))
-    
   }
   
-  
+  return(list(allRD = all, behavRD = behavRD_input))
 }
