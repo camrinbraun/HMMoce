@@ -64,8 +64,10 @@ make.L.mult <- function(ras.list, iniloc, dateVec, maxDepth, bathy, known.locs =
     }
     
     ## if any layers are all 0, reassign to all NA
-    if (length(which(sum_zero)) < raster::nlayers(s) & length(which(sum_zero)) > 0){
-      s[[which(sum_zero)]] <- NA
+    if ((length(which(sum_zero)) < raster::nlayers(s)) & (length(which(sum_zero)) > 0)){
+      for (j in which(sum_zero)) {
+        s[[j]] <- NA
+      }
     }
     
     ## check for layers with all NA
@@ -84,10 +86,17 @@ make.L.mult <- function(ras.list, iniloc, dateVec, maxDepth, bathy, known.locs =
     }
     
     ## multiply & normalize whatever layers remain
+      # if there is only one input layer, just normalize it
     if (raster::nlayers(s) == 1){
       L[[i]] <- s / raster::cellStats(s, 'max') ## do not remove NA yet
     } else{
+      # if there are > 1 input layers, multiply them and normalize
       L[[i]] <- prod(s) / raster::cellStats(prod(s), 'max') ## do not remove NA yet  
+      
+      # if inputs have no overlap of non-zero likelihood and yield all NA output, then use mean of inputs and normalize
+      if (raster::cellStats(!is.na(L[[i]]), sum, na.rm=T) == 0) {
+        L[[i]] <- mean(s) / raster::cellStats(prod(s), 'max')
+      }
     }
     
     ## daily bathy mask
