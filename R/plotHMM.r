@@ -25,6 +25,7 @@
 #' @export
 
 plotHMM <- function(distr, track, dateVec, ptt, known = NULL, resid = FALSE, behav.pts = F, save.plot = FALSE){
+
   
   #### One-state
   if(dim(distr)[1]==1){
