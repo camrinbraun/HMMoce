@@ -41,7 +41,8 @@ Suggests:
     rmarkdown,
     png,
     grid,
-    GA
+    GA,
+    testthat
 RoxygenNote: 6.1.1
 URL: http://www.camrinbraun.com/
 BugReports: https://github.com/camrinbraun/HMMoce/issues
