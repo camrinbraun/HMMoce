@@ -65,8 +65,30 @@ calc.srss <- function(light = NULL, locs.grid, dateVec, res = 1, focalDim = 3){
   ss.grid = sr.grid
   t <- Sys.time()
   fyear = seq(ISOdate(lubridate::year(dateVec[1]), 1, 1, tz = 'UTC'), ISOdate(lubridate::year(dateVec[1]), 12, 31, tz = 'UTC'), 'day')
-  sr.grid[,,1:365] = sapply(1:365, function(i) matrix(maptools::sunriset(xy, fyear[i], direction = "sunrise", POSIXct.out = TRUE)$day,length(lon),length(lat)))
-  ss.grid[,,1:365] = sapply(1:365, function(i) matrix(maptools::sunriset(xy, fyear[i], direction = "sunset", POSIXct.out = TRUE)$day,length(lon),length(lat)))
+  
+  # NOAA solar calculation for sunrise/sunset fraction of day (replaces retired maptools::sunriset)
+  calc_sun_day <- function(lon_vec, lat_vec, date_val, direction = "sunrise") {
+    n <- as.numeric(difftime(date_val, as.POSIXct("2000-01-01 12:00:00", tz = "UTC"), units = "days"))
+    Jstar <- n - (lon_vec / 360)
+    M <- (357.5291 + 0.98560028 * Jstar) %% 360
+    C <- 1.9148 * sin(M * pi / 180) + 0.02 * sin(2 * M * pi / 180) + 0.0003 * sin(3 * M * pi / 180)
+    lambda <- (M + C + 180 + 102.9372) %% 360
+    Jtransit <- 2451545.0 + Jstar + 0.0053 * sin(M * pi / 180) - 0.0069 * sin(2 * lambda * pi / 180)
+    delta <- asin(sin(lambda * pi / 180) * sin(23.44 * pi / 180))
+    cos_omega <- (sin(-0.83 * pi / 180) - sin(lat_vec * pi / 180) * sin(delta)) / (cos(lat_vec * pi / 180) * cos(delta))
+    cos_omega <- pmax(pmin(cos_omega, 1), -1)
+    omega <- acos(cos_omega) * 180 / pi
+    if (direction == "sunrise") {
+      J_event <- Jtransit - (omega / 360)
+    } else {
+      J_event <- Jtransit + (omega / 360)
+    }
+    return((J_event + 0.5) %% 1)
+  }
+
+  pts_grid <- expand.grid(lon = lon, lat = lat)
+  sr.grid[,,1:365] = sapply(1:365, function(i) matrix(calc_sun_day(pts_grid$lon, pts_grid$lat, fyear[i], direction = "sunrise"), length(lon), length(lat)))
+  ss.grid[,,1:365] = sapply(1:365, function(i) matrix(calc_sun_day(pts_grid$lon, pts_grid$lat, fyear[i], direction = "sunset"), length(lon), length(lat)))
   
   
   list.ras <- list(x = lon, y = lat, z = sr.grid*24*60)

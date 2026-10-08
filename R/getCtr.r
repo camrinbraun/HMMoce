@@ -62,11 +62,15 @@ getCtr <- function(distr, tr, g, threshold = 50, makePlot=FALSE){
     sp::coordinates(vl) <- ~x+y
     vl <- sp::SpatialLines(list(sp::Lines(sp::Line(sp::coordinates(vl)), 'vl')))
 
-    inY <- rgeos::gIntersection(l1, vl)
-    inX <- rgeos::gIntersection(l1, hl)
+    l1s <- sf::st_as_sf(l1)
+    vls <- sf::st_as_sf(vl)
+    inYs <- sf::st_intersection(l1s, vls)
 
-    if (is.null(inX) | is.null(inY)){
-      out[[i]] <- list(ctr=l1, yDist=NA, xDist=NA, loc=tr[i,], inY=NA, inX=NA)
+    hls <- sf::st_as_sf(hl)
+    inXs <- sf::st_intersection(l1s, hls)
+
+    if (nrow(inXs) == 0 | nrow(inYs) == 0){
+      out[[i]] <- list(ctr=l1s, yDist=NA, xDist=NA, loc=tr[i,], inY=NA, inX=NA)
 
     } else{
       if(makePlot){
@@ -74,36 +78,36 @@ getCtr <- function(distr, tr, g, threshold = 50, makePlot=FALSE){
         yl <- c(ctr.i@bbox[2,1]-1, ctr.i@bbox[2,2]+1)
 
         fields::image.plot(lon, lat, pts[,,i], xlim=xl, ylim=yl)
-        lines(l1)
-        lines(hl)
-        lines(vl)
+        lines(l1s)
+        lines(hls)
+        lines(vls)
         points(tr$lon[i], tr$lat[i])
-        points(inY)
-        points(inX)
+        points(inYs)
+        points(inXs)
 
         # get user input to proceed
         invisible(readline(prompt="Press [enter] to perform the next iteration and plot"))
       }
 
-      if(dim(inY@coords)[1] == 1){
+      if(dim(sf::st_coordinates(inYs))[1] == 1){
         tr.i <- data.frame(matrix(c(tr$lon[i], tr$lat[i]),ncol=2))
         names(tr.i) <- c('x','y')
         sp::coordinates(tr.i) <- ~x+y
-        yDist <- sp::spDists(tr.i, inY)
+        yDist <- sp::spDists(tr.i, as(inYs, 'Spatial'))
       } else{
-        yDist <- sp::spDists(inY)[1,2] / 2 # Euclidean, in degrees
+        yDist <- sp::spDists(as(inYs, 'Spatial'))[1,2] / 2 # Euclidean, in degrees
       }
 
-      if(dim(inX@coords)[1] == 1){
+      if(dim(sf::st_coordinates(inXs))[1] == 1){
         tr.i <- data.frame(matrix(c(tr$lon[i], tr$lat[i]),ncol=2))
         names(tr.i) <- c('x','y')
         sp::coordinates(tr.i) <- ~x+y
-        xDist <- sp::spDists(tr.i, inX)
+        xDist <- sp::spDists(tr.i, as(inXs, 'Spatial'))
       } else{
-        xDist <- sp::spDists(inX)[1,2] / 2 # Euclidean, in degrees
+        xDist <- sp::spDists(as(inXs, 'Spatial'))[1,2] / 2 # Euclidean, in degrees
       }
 
-      out[[i]] <- list(ctr=l1, yDist=yDist, xDist=xDist, loc=tr[i,], inY=inY, inX=inX)
+      out[[i]] <- list(ctr=l1s, yDist=yDist, xDist=xDist, loc=tr[i,], inY=inYs, inX=inXs)
 
     }
 
