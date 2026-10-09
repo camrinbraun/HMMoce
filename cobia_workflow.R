@@ -288,21 +288,32 @@ if (download_glorys) {
   message("Checking/downloading GLORYS daily files for date range...")
   temp_product_id <- "cmems_mod_glo_phy_my_0.083deg_P1D-m"
   
-  for (i in seq_along(dateVec)) {
-    d_str <- format(as.Date(dateVec[i]), "%Y%m%d")
-    d_dash <- format(as.Date(dateVec[i]), "%Y-%m-%d")
-    out_nc <- paste0(temp_product_id, "_", d_str, ".nc")
-    out_path <- file.path(glorys.dir, out_nc)
+  # Identify missing dates only
+  all_nc <- paste0(temp_product_id, "_", format(as.Date(dateVec), "%Y%m%d"), ".nc")
+  missing_idx <- which(!file.exists(file.path(glorys.dir, all_nc)))
+  
+  if (length(missing_idx) > 0) {
+    n_workers <- min(4, parallel::detectCores() - 1, length(missing_idx))
+    message("Downloading ", length(missing_idx), " files using ", n_workers, " parallel workers...")
     
-    if (!file.exists(out_path)) {
+    cl <- parallel::makeCluster(n_workers)
+    parallel::clusterExport(cl, varlist = c("cm_cli", "temp_product_id", "sp.lim", "glorys.dir", "dateVec"), envir = environment())
+    
+    parallel::parLapply(cl, missing_idx, function(i) {
+      d_str <- format(as.Date(dateVec[i]), "%Y%m%d")
+      d_dash <- format(as.Date(dateVec[i]), "%Y-%m-%d")
+      out_nc <- paste0(temp_product_id, "_", d_str, ".nc")
       cmd <- sprintf(
         '%s subset -i %s -x %f -X %f -y %f -Y %f -t %s -T %s -z 0 -Z 2000 --variable thetao -o "%s" -f "%s" --force-download',
         cm_cli, temp_product_id, sp.lim$lonmin, sp.lim$lonmax, sp.lim$latmin, sp.lim$latmax,
         d_dash, d_dash, glorys.dir, out_nc
       )
-      message("Downloading: ", out_nc)
-      system(cmd)
-    }
+      system(cmd, ignore.stdout = TRUE, ignore.stderr = TRUE)
+    })
+    parallel::stopCluster(cl)
+    message("Parallel download complete.")
+  } else {
+    message("All GLORYS daily files already downloaded.")
   }
 }
 
