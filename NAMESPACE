@@ -5,29 +5,46 @@ export(calc.bathy)
 export(calc.bathy.par)
 export(calc.bottomTemp)
 export(calc.bottomTemp.par)
+export(calc.glorys)
+export(calc.glorys.par)
 export(calc.hycom)
 export(calc.hycom.par)
 export(calc.lightloc)
 export(calc.ohc)
+export(calc.ohc.glorys)
+export(calc.ohc.glorys.par)
 export(calc.ohc.par)
 export(calc.srss)
 export(calc.sst)
 export(calc.sst.par)
+export(calc.sst.par.glorys)
 export(calc.track)
 export(calc.woa)
 export(calc.woa.par)
+export(coarse.L)
 export(extract.woa)
 export(findDateFormat)
 export(gausskern)
 export(gausskern.isotrop)
 export(gausskern.nostd)
+export(gausskern.pg)
 export(get.bath.data)
 export(get.env)
 export(get.nll.fun)
+export(getCtr)
+export(getCtr_sf)
 export(hmm.filter)
+export(hmm.filterExp)
 export(hmm.smoother)
+export(hmm.smootherExp)
+export(irregular_ncToRaster)
 export(likint3)
 export(make.L)
+export(make.L.mult)
+export(make.L.par)
+export(make.L.pdt)
+export(microwave_to_etuff)
+export(opt.params)
 export(plotHMM)
 export(plotRD)
 export(read.wc)
@@ -36,10 +53,27 @@ export(setup.grid)
 export(setup.grid.raster)
 export(setup.locs.grid)
 importFrom(curl,curl_download)
-importFrom(dplyr,"%>%")
-importFrom(dplyr,group_by)
-importFrom(dplyr,n)
-importFrom(dplyr,summarise)
+importFrom(dplyr,
+  "%>%",
+  group_by,
+  n,
+  summarise
+)
 importFrom(fields,"world")
 importFrom(foreach,"%dopar%")
+importFrom(grDevices,
+  colorRampPalette,
+  contourLines
+)
+importFrom(graphics,
+  axis,
+  box,
+  image,
+  layout,
+  lines,
+  mtext,
+  par,
+  plot.new,
+  points
+)
 importFrom(methods,as)

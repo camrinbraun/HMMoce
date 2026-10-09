@@ -42,8 +42,8 @@ Suggests:
     grid,
     GA,
     testthat
-RoxygenNote: 6.1.1
 URL: http://www.camrinbraun.com/
 BugReports: https://github.com/camrinbraun/HMMoce/issues
 LazyData: true
 VignetteBuilder: knitr
+Config/roxygen2/version: 8.1.0

@@ -4,14 +4,22 @@
 \alias{get.hycom}
 \title{Download HYCOM data}
 \usage{
-get.hycom(limits, time, vars = c("water_temp"), include_latlon = TRUE,
-  filename = "", download.file = TRUE, dir = getwd(),
-  depLevels = NULL, ...)
+get.hycom(
+  limits,
+  time,
+  vars = c("water_temp"),
+  include_latlon = TRUE,
+  filename = "",
+  download.file = TRUE,
+  dir = getwd(),
+  depLevels = NULL,
+  ...
+)
 }
 \arguments{
 \item{limits}{A list of length 4; minlon, maxlon, minlat, maxlat. Longitude values are -180,180}
 
-\item{time}{A vector of length 2 with the minimum and maximum times in form
+\item{time}{A vector, usually of length 1, in form
 \code{as.Date(date)}.}
 
 \item{vars}{A list of variables to download. This can contain

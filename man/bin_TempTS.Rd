@@ -7,17 +7,14 @@
 bin_TempTS(ts, out_dates, bin_res = 8)
 }
 \arguments{
-\item{ts}{is data frame of time series data. Required inputs cols are Date (POSIX), Depth and Temperature. Note that its up to you to use the appropriate columns with these names. For example, Microwave X-tags can have a "Corrected Depth" column. You should re-name that to "Depth" and provide it as input here.}
+\item{ts}{Data frame of time series data (Date, Depth, Temperature).}
 
-\item{out_dates}{is POSIX vector of desired dates as output.}
+\item{out_dates}{POSIX vector of desired output dates.}
 
-\item{bin_res}{is numeric indicating desired depth bin resolution. Default is 8 
-to match native PDT format on WC tags; however, theres no reason why this 
-couldnt be higher resolution, especially if consider we later match this to
-a 3D product such as HYCOM that is higher depth resolution (usually).}
+\item{bin_res}{Numeric indicating desired depth bin resolution (default = 8).}
 }
 \value{
-a dataframe of summarized depth-temperature information that can be used for likelihood calculations in HMMoce
+A dataframe of summarized depth-temperature information.
 }
 \description{
 \code{bin_TempTS} converts time series data (such as from MT tags) to PDT-like data for use in HMMoce
@@ -36,4 +33,7 @@ pdt_dates <- seq.POSIXt(tag, pop, by = 'day')
 pdt <- bin_TempTS(ts, out_dates = pdt_dates, bin_res = 25)
 pdt <- pdt[,c('Date','Depth','MinTemp','MaxTemp')]
 }
+}
+\author{
+Ben Galuardi
 }
