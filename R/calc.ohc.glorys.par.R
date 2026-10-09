@@ -114,11 +114,12 @@ calc.ohc.glorys.par <- function(pdt, filename, isotherm = '', ohc.dir, dateVec, 
     if (nrow(pdt.i) < 3) return(NA)
     
     # make sure we get the filename right
-    glorys_file <- paste(ohc.dir, filename, '_', format(dateVec[i], '%Y-%m-%d'), '.nc', sep='')
-    if (!file.exists(glorys_file)) glorys_file <- paste(ohc.dir, filename, '_', format(dateVec[i], '%Y%m%d'), '.nc', sep='')
+    glorys_file <- file.path(ohc.dir, paste0(filename, '_', format(dateVec[i], '%Y-%m-%d'), '.nc'))
+    if (!file.exists(glorys_file)) glorys_file <- file.path(ohc.dir, paste0(filename, '_', format(dateVec[i], '%Y%m%d'), '.nc'))
     if (!file.exists(glorys_file)){
       glorys_flist <- list.files(ohc.dir)
-      glorys_file <- paste(ohc.dir, glorys_flist[grep(format(dateVec[i], '%Y%m%d'), glorys_flist)], sep='')
+      m <- grep(format(dateVec[i], '%Y%m%d'), glorys_flist)
+      if (length(m) > 0) glorys_file <- file.path(ohc.dir, glorys_flist[m])
       if (length(glorys_file) > 1){
         warning('Daily glorys file length is > 1. Choosing the first one which may or may not be the right guess.')
         glorys_file <- glorys_file[1]

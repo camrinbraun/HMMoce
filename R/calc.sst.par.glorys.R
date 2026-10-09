@@ -90,24 +90,10 @@ calc.sst.par.glorys <- function(tag.sst, filename, sst.dir, dateVec, focalDim = 
   #r <- raster::flip(raster::raster(t(dat), xmn=min(lon), xmx=max(lon),
   #                                 ymn=min(lat), ymx=max(lat)), 2)
   
-  # make sure we get the filename right
-  glorys_file <- paste(sst.dir, filename, '_', format(dateVec[i], '%Y-%m-%d'), '.nc', sep='')
-  if (!file.exists(glorys_file)) glorys_file <- paste(sst.dir, filename, '_', format(dateVec[i], '%Y%m%d'), '.nc', sep='')
-  if (!file.exists(glorys_file)){
-    glorys_flist <- list.files(sst.dir)
-    glorys_file <- paste(sst.dir, glorys_flist[grep(format(dateVec[i], '%Y%m%d'), glorys_flist)], sep='')
-    if (length(glorys_file) > 1){
-      warning('Daily glorys file length is > 1. Choosing the first one which may or may not be the right guess.')
-      glorys_file <- glorys_file[1]
-    }
-  }
-  if (!file.exists(glorys_file)) stop(paste('Source raster file does not exist.'))
-    
-  # open day's glorys data
-  r <- raster::raster(glorys_file)
-  #dat <- RNetCDF::var.get.nc(nc, temp.idx) * scale + offset
-  #dat <- RNetCDF::var.get.nc(nc, 'variable') #* scale + offset
-  #dat <- raster::as.array(br)
+  # get grid parameters from first file
+  glorys_flist <- list.files(sst.dir, pattern = "\\.nc$", full.names = TRUE)
+  if (length(glorys_flist) == 0) stop("Source raster file does not exist in sst.dir.")
+  r <- raster::raster(glorys_flist[1])
   
   ## deal with focalDim if NULL
   if (is.null(focalDim)){
@@ -146,11 +132,12 @@ calc.sst.par.glorys <- function(tag.sst, filename, sst.dir, dateVec, focalDim = 
     #dat <- RNetCDF::var.get.nc(nc, nameidx) # for OI SST
     
     # make sure we get the filename right
-    glorys_file <- paste(sst.dir, filename, '_', format(dateVec[i], '%Y-%m-%d'), '.nc', sep='')
-    if (!file.exists(glorys_file)) glorys_file <- paste(sst.dir, filename, '_', format(dateVec[i], '%Y%m%d'), '.nc', sep='')
+    glorys_file <- file.path(sst.dir, paste0(filename, '_', format(dateVec[i], '%Y-%m-%d'), '.nc'))
+    if (!file.exists(glorys_file)) glorys_file <- file.path(sst.dir, paste0(filename, '_', format(dateVec[i], '%Y%m%d'), '.nc'))
     if (!file.exists(glorys_file)){
       glorys_flist <- list.files(sst.dir)
-      glorys_file <- paste(sst.dir, glorys_flist[grep(format(dateVec[i], '%Y%m%d'), glorys_flist)], sep='')
+      m <- grep(format(dateVec[i], '%Y%m%d'), glorys_flist)
+      if (length(m) > 0) glorys_file <- file.path(sst.dir, glorys_flist[m])
       if (length(glorys_file) > 1){
         warning('Daily glorys file length is > 1. Choosing the first one which may or may not be the right guess.')
         glorys_file <- glorys_file[1]

@@ -359,7 +359,238 @@ if (length(glorys_files) > 0 && !is.null(tag.sst) && nrow(tag.sst) > 0) {
   L.sst <- NULL
 }
 
-## 6.4 Combine Available Likelihood Rasters
-lik_list <- list(light = L.light, bathy = L.bathy, ohc = L.ohc, sst = L.sst)
-lik_list <- lik_list[!sapply(lik_list, is.null)]
-message("Available observation likelihoods: ", paste(names(lik_list), collapse = ", "))
+## 6.4 Combine Available Likelihood Rasters -----------------------------------
+L.rasters <- list(bathy = L.bathy, light = L.light, ohc = L.ohc, sst = L.sst)
+L.rasters <- L.rasters[!sapply(L.rasters, is.null)]
+message("Combining observation likelihoods: ", paste(names(L.rasters), collapse = ", "))
+
+# Resample to common finest grid resolution
+resamp.idx <- which.min(lapply(L.rasters, function(x) raster::res(x)[1]))
+L.res <- resample.grid(L.rasters, L.rasters[[resamp.idx]])
+
+# Prepare daily maxDepth vector aligned with dateVec (zero-padded)
+mmd_match <- match(as.Date(dateVec), as.Date(mmd$Date))
+maxDepth_vec <- ifelse(!is.na(mmd_match), mmd$MaxDepth[mmd_match], 0)
+
+# Form master observation likelihood array
+L <- make.L(
+  ras.list = L.res$L.rasters,
+  iniloc = iniloc,
+  dateVec = dateVec,
+  maxDepth = maxDepth_vec,
+  bathy = bathy
+)
+saveRDS(L, file.path(out_dir, "L.master.rds"))
+message("Master observation likelihood L constructed: dim = ", paste(dim(L), collapse = " x "))
+
+# 7. Model Comparison with Parameter Optimization -----------------------------
+
+# 7.1 Define Likelihood Combinations to Test
+combos <- list(
+  all             = c("bathy", "light", "ohc", "sst"),
+  bathy_light_sst = c("bathy", "light", "sst"),
+  bathy_light_ohc = c("bathy", "light", "ohc"),
+  bathy_light     = c("bathy", "light"),
+  bathy_ohc       = c("bathy", "ohc"),
+  bathy_sst       = c("bathy", "sst")
+)
+# Keep only combos where all requested likelihoods exist in L.res$L.rasters
+combos <- combos[sapply(combos, function(x) all(x %in% names(L.res$L.rasters)))]
+
+# 7.2 Run Each Combination
+model_results <- list()
+comp_rows <- list()
+
+for (m_name in names(combos)) {
+  sel_liks <- combos[[m_name]]
+  message("\n==================================================")
+  message("Running model: ", m_name, " (", paste(sel_liks, collapse = " + "), ")")
+  message("==================================================")
+  
+  # Form observation likelihood for this subset
+  L <- make.L(
+    ras.list = L.res$L.rasters[sel_liks],
+    iniloc = iniloc,
+    dateVec = dateVec,
+    maxDepth = maxDepth_vec,
+    bathy = bathy
+  )
+  
+  # Parameter optimization
+  message("Optimizing movement parameters with HMMoce:::opt.params...")
+  ncores <- min(parallel::detectCores() - 1, 8)
+  pars_fit <- tryCatch({
+    HMMoce:::opt.params(
+      pars.init = c(2, 0.2, 0.6, 0.8),
+      lower.bounds = c(0.1, 0.001, 0.1, 0.1),
+      upper.bounds = c(6, 0.6, 0.9, 0.9),
+      g = L.res$g,
+      L = L,
+      alg.opt = "ga",
+      max_iter = 15,
+      run = 10,
+      p_size = 50,
+      write.results = FALSE,
+      ncores = ncores
+    )
+  }, error = function(e) {
+    message("GA optimization failed (", e$message, "), falling back to optim (L-BFGS-B)...")
+    HMMoce:::opt.params(
+      pars.init = c(2, 0.2, 0.6, 0.8),
+      lower.bounds = c(0.1, 0.001, 0.1, 0.1),
+      upper.bounds = c(6, 0.6, 0.9, 0.9),
+      g = L.res$g,
+      L = L,
+      alg.opt = "optim",
+      write.results = FALSE
+    )
+  })
+  
+  pars <- as.numeric(pars_fit$par)
+  if (length(pars) == 4) {
+    sigmas <- pars[1:2]
+sizes <- rep(ceiling(sigmas[1] * 4), 2)
+    pb <- pars[3:4]
+    muadvs <- c(0, 0)
+    P <- matrix(c(pb[1], 1 - pb[1], 1 - pb[2], pb[2]), nrow = 2, ncol = 2, byrow = TRUE)
+  } else {
+    sigmas <- pars[1]
+    sizes <- rep(ceiling(sigmas[1] * 4), 2)
+    pb <- NULL
+    muadvs <- 0
+    P <- NULL
+  }
+  
+  # Movement kernels
+  if (sizes[1] %% 2 == 0) sizes[1] <- sizes[1] + 1
+  K1 <- HMMoce:::gausskern.pg(sizes[1], sigmas[1], muadv = muadvs[1])
+  K1 <- HMMoce:::mask.K(K1)
+  
+  if (!is.null(pb)) {
+    if (sizes[2] %% 2 == 0) sizes[2] <- sizes[2] + 1
+    K2 <- HMMoce:::gausskern.pg(sizes[2], sigmas[2], muadv = muadvs[2])
+    K2 <- HMMoce:::mask.K(K2)
+K <- list(K1, K2)
+    m_states <- 2
+  } else {
+    K <- list(K1)
+    m_states <- 1
+  }
+  
+  # Forward filter
+message("Running HMM filter...")
+  f <- hmm.filter(g = L.res$g, L = L, K = K, P = P, m = m_states)
+
+  # Likelihood metrics & AIC
+  nllf <- -sum(log(f$psi[f$psi > 0]))
+  aic <- 2 * nllf + 2 * length(pars)
+  
+  # Backward smoother
+message("Running HMM smoother...")
+s <- hmm.smoother(f, K = K, L = L, P = P)
+
+  # Most probable track
+tr <- calc.track(s, g = L.res$g, dateVec = dateVec, iniloc = iniloc, method = "mean")
+  tr$Date <- as.POSIXct(dateVec, tz = "UTC")
+  
+  # Save individual model outputs
+  fit_file <- file.path(out_dir, paste0(instrument_id, "_", m_name, "_fit.rds"))
+  track_file <- file.path(out_dir, paste0(instrument_id, "_", m_name, "_track.csv"))
+  saveRDS(list(model = m_name, pars = pars, s = s, tr = tr, aic = aic, nll = nllf), fit_file)
+  write.csv(tr, track_file, row.names = FALSE)
+
+  # Diagnostic PNG
+  plot_file <- file.path(out_dir, paste0(instrument_id, "_", m_name, "_plotHMM.png"))
+png(plot_file, width = 8, height = 9, units = "in", res = 300)
+  plotHMM(s = s, track = tr, dateVec = dateVec, ptt = paste(instrument_id, m_name), behav.pts = TRUE, save.plot = FALSE)
+dev.off()
+  
+  # Endpoint error (distance to popoff in km)
+  last_idx <- nrow(tr)
+  end_err_km <- raster::pointDistance(
+    c(tr$lon[last_idx], tr$lat[last_idx]),
+    c(iniloc$lon[2], iniloc$lat[2]),
+    lonlat = TRUE
+  ) / 1000
+  
+  comp_rows[[m_name]] <- data.frame(
+    model = m_name,
+    likelihoods = paste(sel_liks, collapse = "+"),
+    sigma1 = round(sigmas[1], 3),
+    sigma2 = if (length(sigmas) > 1) round(sigmas[2], 3) else NA,
+    p11 = if (!is.null(pb)) round(pb[1], 3) else NA,
+    p22 = if (!is.null(pb)) round(pb[2], 3) else NA,
+    nll = round(nllf, 2),
+    aic = round(aic, 2),
+    end_error_km = round(end_err_km, 1),
+    stringsAsFactors = FALSE
+  )
+  
+  tr$model <- m_name
+  model_results[[m_name]] <- tr
+}
+
+# 7.3 Model Comparison Summary Table
+comp_table <- do.call(rbind, comp_rows)
+comp_table <- comp_table[order(comp_table$aic), ]
+write.csv(comp_table, file.path(out_dir, paste0(instrument_id, "_model_comparison.csv")), row.names = FALSE)
+message("\nModel Comparison Table:")
+print(comp_table)
+
+# 8. Multi-Model Track Comparison Plot -----------------------------------------
+library(ggplot2)
+
+world_map <- map_data("world")
+all_tracks <- do.call(rbind, model_results)
+
+p_comp <- ggplot() +
+  geom_polygon(data = world_map, aes(x = long, y = lat, group = group), fill = "grey80", color = "grey60") +
+  coord_fixed(xlim = c(sp.lim$lonmin, sp.lim$lonmax), ylim = c(sp.lim$latmin, sp.lim$latmax)) +
+  geom_path(data = all_tracks, aes(x = lon, y = lat, color = model), linewidth = 0.9, alpha = 0.85) +
+  geom_point(data = iniloc[1, ], aes(x = lon, y = lat), fill = "green", color = "black", shape = 21, size = 4) +
+  geom_point(data = iniloc[2, ], aes(x = lon, y = lat), fill = "red", color = "black", shape = 21, size = 4) +
+  theme_bw() +
+  labs(
+    title = paste("Track Comparison across Likelihood Combinations - Tag", instrument_id),
+    subtitle = "Green = Release, Red = Popoff",
+    x = "Longitude", y = "Latitude", color = "Model"
+  )
+
+if (!is.null(lightloc) && nrow(lightloc) > 0) {
+  p_comp <- p_comp +
+    geom_point(data = lightloc, aes(x = Longitude, y = Latitude), color = "orange", alpha = 0.3, size = 1)
+}
+
+comp_plot_file <- file.path(out_dir, paste0(instrument_id, "_track_comparison.png"))
+ggsave(comp_plot_file, plot = p_comp, width = 10, height = 8, dpi = 300)
+message("Saved comparison track map to: ", comp_plot_file)
+
+# 8.2 Detailed ggplot Map with Raw Light Locations & Endpoints
+library(ggplot2)
+
+world_map <- map_data("world")
+tr$Date <- as.POSIXct(dateVec, tz = "UTC")
+
+p_track <- ggplot() +
+  geom_polygon(data = world_map, aes(x = long, y = lat, group = group), fill = "grey75", color = "grey50") +
+  coord_fixed(xlim = c(sp.lim$lonmin, sp.lim$lonmax), ylim = c(sp.lim$latmin, sp.lim$latmax)) +
+  theme_bw() +
+  labs(title = paste("HMMoce Estimated Track - Cobia", instrument_id), x = "Longitude", y = "Latitude")
+
+# Add raw light geolocations if available
+if (!is.null(lightloc) && nrow(lightloc) > 0) {
+  p_track <- p_track +
+    geom_point(data = lightloc, aes(x = Longitude, y = Latitude), color = "orange", alpha = 0.4, size = 1.2)
+}
+
+# Add estimated trajectory
+p_track <- p_track +
+  geom_path(data = tr, aes(x = lon, y = lat), color = "darkblue", linewidth = 0.8) +
+  geom_point(data = tr, aes(x = lon, y = lat, color = as.numeric(Date)), size = 2) +
+  scale_color_viridis_c(name = "Date", breaks = as.numeric(pretty(tr$Date, n = 5)), labels = function(x) format(as.Date(as.POSIXct(x, origin = "1970-01-01")), "%b %d")) +
+  geom_point(data = iniloc[1, ], aes(x = lon, y = lat), fill = "green", color = "black", shape = 21, size = 4) +
+  geom_point(data = iniloc[2, ], aes(x = lon, y = lat), fill = "red", color = "black", shape = 21, size = 4)
+
+ggsave(file.path(out_dir, paste0(instrument_id, "_track_map.png")), plot = p_track, width = 9, height = 7, dpi = 300)
+message("Saved track map to: ", file.path(out_dir, paste0(instrument_id, "_track_map.png")))
+print(p_track)
