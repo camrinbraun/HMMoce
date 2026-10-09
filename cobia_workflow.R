@@ -8,7 +8,7 @@ library(dplyr)
 library(lubridate)
 library(ggplot2)
 library(tags2etuff)
-source("c:/Users/benjamin.galuardi/Documents/GitHub/HMMoce/microwave_to_etuff.R")
+# source("c:/Users/benjamin.galuardi/Documents/GitHub/HMMoce/microwave_to_etuff.R")
 devtools::load_all("c:/Users/benjamin.galuardi/Documents/GitHub/HMMoce")
 # invisible(lapply(list.files("c:/Users/benjamin.galuardi/Documents/GitHub/HMMoce/R", 
 #                             pattern = "\\.[Rr]$", full.names = TRUE), source))
@@ -167,16 +167,16 @@ if (all(c("latitude", "longitude") %in% names(etuff$etuff))) {
 if ("depthMax" %in% names(etuff$etuff)) {
   mmd <- etuff$etuff %>%
     dplyr::filter(!is.na(depthMax)) %>%
-    dplyr::select(DateTime, depthMax) %>%
+    dplyr::select(Date = DateTime, MaxDepth = depthMax) %>%
     as.data.frame()
 } else if ("depth" %in% names(etuff$etuff)) {
   mmd <- etuff$etuff %>%
     dplyr::filter(!is.na(depth)) %>%
-    dplyr::mutate(Date = as.Date(DateTime)) %>%
-    dplyr::group_by(Date) %>%
-    dplyr::summarise(depthMax = max(depth, na.rm = TRUE)) %>%
-    dplyr::mutate(DateTime = as.POSIXct(Date, tz = "UTC")) %>%
-    dplyr::select(DateTime, depthMax) %>%
+    dplyr::mutate(d = as.Date(DateTime)) %>%
+    dplyr::group_by(d) %>%
+    dplyr::summarise(MaxDepth = max(depth, na.rm = TRUE)) %>%
+    dplyr::mutate(Date = as.POSIXct(d, tz = "UTC")) %>%
+    dplyr::select(Date, MaxDepth) %>%
     as.data.frame()
 } else {
   mmd <- NULL
@@ -267,12 +267,88 @@ if (!is.null(bathy) && !is.null(mmd) && nrow(mmd) > 0) {
   L.bathy <- NULL
 }
 
-## 6.3 SST Likelihood
-# Note: Requires local or downloaded SST rasters (e.g. NOAA OISST / GHRSST / GLORYS / HYCOM)
-# L.sst <- calc.sst(tag.sst, sst.dir = sst.dir, dateVec = dateVec, sens.err = 1)
-L.sst <- NULL
+## 6.3 GLORYS Ocean Model Data (3D Profile OHC & SST) -----------------------
+glorys.dir <- file.path(rerun_dir, "EnvData", "glorys")
+if (!dir.exists(glorys.dir)) dir.create(glorys.dir, recursive = TRUE)
+
+# Interactive download function for GLORYS daily NetCDF files via copernicusmarine
+# To run interactively in R:
+# 1) Make sure `copernicusmarine` CLI is logged in: `copernicusmarine login`
+# 2) Set download_glorys <- TRUE to fetch missing days
+download_glorys <- TRUE
+
+# Detect copernicusmarine executable path
+cm_cli <- Sys.which("copernicusmarine")
+if (cm_cli == "") {
+  user_cm <- file.path(Sys.getenv("APPDATA"), "Python", "Python313", "Scripts", "copernicusmarine.exe")
+  if (file.exists(user_cm)) cm_cli <- paste0('"', user_cm, '"') else cm_cli <- "copernicusmarine"
+}
+
+if (download_glorys) {
+  message("Checking/downloading GLORYS daily files for date range...")
+  temp_product_id <- "cmems_mod_glo_phy_my_0.083deg_P1D-m"
+  
+  for (i in seq_along(dateVec)) {
+    d_str <- format(as.Date(dateVec[i]), "%Y%m%d")
+    d_dash <- format(as.Date(dateVec[i]), "%Y-%m-%d")
+    out_nc <- paste0(temp_product_id, "_", d_str, ".nc")
+    out_path <- file.path(glorys.dir, out_nc)
+    
+    if (!file.exists(out_path)) {
+      cmd <- sprintf(
+        '%s subset -i %s -x %f -X %f -y %f -Y %f -t %s -T %s -z 0 -Z 2000 --variable thetao -o "%s" -f "%s" --force-download',
+        cm_cli, temp_product_id, sp.lim$lonmin, sp.lim$lonmax, sp.lim$latmin, sp.lim$latmax,
+        d_dash, d_dash, glorys.dir, out_nc
+      )
+      message("Downloading: ", out_nc)
+      system(cmd)
+    }
+  }
+}
+
+# 6.3.1 GLORYS OHC Profile Likelihood (3D)
+glorys_files <- list.files(glorys.dir, pattern = "\\.nc$", full.names = TRUE)
+if (length(glorys_files) > 0 && !is.null(pdt) && nrow(pdt) > 0) {
+  ohc_rds <- file.path(out_dir, "L.ohc.glorys.rds")
+  if (!file.exists(ohc_rds)) {
+    message("Calculating GLORYS OHC profile likelihood...")
+    L.ohc <- calc.ohc.glorys(
+      pdt = pdt,
+      filename = "cmems_mod_glo_phy_my_0.083deg_P1D-m",
+      ohc.dir = glorys.dir,
+      dateVec = dateVec
+    )
+    saveRDS(L.ohc, ohc_rds)
+  } else {
+    message("Loading cached L.ohc: ", ohc_rds)
+    L.ohc <- readRDS(ohc_rds)
+  }
+} else {
+  L.ohc <- NULL
+}
+
+# 6.3.2 GLORYS SST Likelihood
+if (length(glorys_files) > 0 && !is.null(tag.sst) && nrow(tag.sst) > 0) {
+  sst_rds <- file.path(out_dir, "L.sst.glorys.rds")
+  if (!file.exists(sst_rds)) {
+    message("Calculating GLORYS SST likelihood...")
+    L.sst <- calc.sst.par.glorys(
+      tag.sst,
+      filename = "cmems_mod_glo_phy_my_0.083deg_P1D-m",
+      sst.dir = glorys.dir,
+      dateVec = dateVec,
+      sens.err = 1
+    )
+    saveRDS(L.sst, sst_rds)
+  } else {
+    message("Loading cached L.sst: ", sst_rds)
+    L.sst <- readRDS(sst_rds)
+  }
+} else {
+  L.sst <- NULL
+}
 
 ## 6.4 Combine Available Likelihood Rasters
-lik_list <- list(light = L.light, bathy = L.bathy, sst = L.sst)
+lik_list <- list(light = L.light, bathy = L.bathy, ohc = L.ohc, sst = L.sst)
 lik_list <- lik_list[!sapply(lik_list, is.null)]
 message("Available observation likelihoods: ", paste(names(lik_list), collapse = ", "))
