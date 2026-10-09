@@ -10,10 +10,11 @@ library(ggplot2)
 library(tags2etuff)
 source("c:/Users/benjamin.galuardi/Documents/GitHub/HMMoce/microwave_to_etuff.R")
 devtools::load_all("c:/Users/benjamin.galuardi/Documents/GitHub/HMMoce")
-invisible(lapply(list.files("c:/Users/benjamin.galuardi/Documents/GitHub/HMMoce/R", 
-                            pattern = "\\.[Rr]$", full.names = TRUE), source))
+# invisible(lapply(list.files("c:/Users/benjamin.galuardi/Documents/GitHub/HMMoce/R", 
+#                             pattern = "\\.[Rr]$", full.names = TRUE), source))
 
 base_dir <- "G:/.shortcut-targets-by-id/1jN4NVXfNcxVqIPxVvl3k3e3e4W3J5HgU/Cobia Shared Files"
+rerun_dir <- file.path(base_dir, "hmmoce-rerun")
 
 get_cobia_meta <- function(tag_id, dir = base_dir) {
   tag_id <- as.character(tag_id)
@@ -66,7 +67,10 @@ tag_meta <- get_cobia_meta(instrument_id, base_dir)
 excel_file <- tag_meta$excel_file
 
 # 2. Generate and Load eTUFF File ----------------------------------------------
-etuff_out_file <- file.path(getwd(), paste0(instrument_id, "_eTUFF.txt"))
+out_dir <- file.path(rerun_dir, instrument_id)
+if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
+
+etuff_out_file <- file.path(out_dir, paste0(instrument_id, "_eTUFF.txt"))
 if (!file.exists(etuff_out_file)) {
   message("Generating eTUFF file for tag ", instrument_id, " from: ", excel_file)
   etuff <- microwave_to_etuff(excel_file, tag_meta, out_file = etuff_out_file)
@@ -200,19 +204,75 @@ message("Spatial Limits: Lon [", sp.lim$lonmin, ", ", sp.lim$lonmax, "] | Lat ["
 locs.grid <- setup.locs.grid(sp.lim, res = "hycom")
 
 # Bathymetry grid
-bathy.dir <- file.path(base_dir, "EnvData", "bathy")
+bathy.dir <- file.path(rerun_dir, "EnvData", "bathy")
 if (!dir.exists(bathy.dir)) dir.create(bathy.dir, recursive = TRUE)
 
-bathy_file <- file.path(bathy.dir, paste0("bathy_", sp.lim$lonmin, "_", sp.lim$lonmax, ".nc"))
+bathy_file <- file.path(bathy.dir, "bathy.nc")
 if (file.exists(bathy_file)) {
+  message("Loading cached bathymetry: ", bathy_file)
   bathy <- raster::raster(bathy_file)
 } else {
   message("Fetching NOAA bathymetry raster for study area...")
   bathy <- tryCatch(
-    get.bath.data(spatLim = sp.lim, save.dir = bathy.dir, res = 0.25),
+    get.bath.data(spatLim = sp.lim, save.dir = bathy.dir, res = 0.5),
     error = function(e) {
       message("Bathymetry remote download fallback: ", e$message)
       NULL
     }
   )
 }
+# 6. Observation Likelihood Calculations ---------------------------------------
+
+## 6.1 Light / Geolocation Likelihood
+if (!is.null(lightloc) && nrow(lightloc) > 0) {
+  light_rds <- file.path(out_dir, "L.light.rds")
+  if (!file.exists(light_rds)) {
+    message("Calculating light likelihood (L.light)...")
+    L.light <- calc.lightloc(
+      lightloc,
+      locs.grid = locs.grid,
+      dateVec = dateVec,
+      errEll = FALSE,
+      lon_only = TRUE
+    )
+    saveRDS(L.light, light_rds)
+  } else {
+    message("Loading cached L.light: ", light_rds)
+    L.light <- readRDS(light_rds)
+  }
+} else {
+  L.light <- NULL
+}
+
+## 6.2 Bathymetry Likelihood
+if (!is.null(bathy) && !is.null(mmd) && nrow(mmd) > 0) {
+  bathy_rds <- file.path(out_dir, "L.bathy.rds")
+  if (!file.exists(bathy_rds)) {
+    message("Calculating bathymetry likelihood (L.bathy)...")
+    bathy_crop <- raster::crop(bathy, raster::extent(sp.lim$lonmin, sp.lim$lonmax, sp.lim$latmin, sp.lim$latmax))
+    L.bathy <- calc.bathy(
+      mmd,
+      bathy_crop,
+      dateVec = dateVec,
+      focalDim = 5,
+      sens.err = 5,
+      lik.type = "max"
+    )
+    saveRDS(L.bathy, bathy_rds)
+  } else {
+    message("Loading cached L.bathy: ", bathy_rds)
+    L.bathy <- readRDS(bathy_rds)
+  }
+} else {
+  L.bathy <- NULL
+}
+
+## 6.3 SST Likelihood
+# Note: Requires local or downloaded SST rasters (e.g. NOAA OISST / GHRSST / GLORYS / HYCOM)
+# L.sst <- calc.sst(tag.sst, sst.dir = sst.dir, dateVec = dateVec, sens.err = 1)
+L.sst <- NULL
+
+## 6.4 Combine Available Likelihood Rasters
+lik_list <- list(light = L.light, bathy = L.bathy, sst = L.sst)
+lik_list <- lik_list[!sapply(lik_list, is.null)]
+message("Available observation likelihoods: ", paste(names(lik_list), collapse = ", "))
