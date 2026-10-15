@@ -62,7 +62,7 @@ get_cobia_meta <- function(tag_id, dir = base_dir) {
 }
 
 # Select target tag ID (e.g. "36419", "36420", "36421", "36422", "40302", "49157", "55550", "55552")
-instrument_id <- "40302"
+instrument_id <- "36421"
 tag_meta <- get_cobia_meta(instrument_id, base_dir)
 excel_file <- tag_meta$excel_file
 
