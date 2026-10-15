@@ -135,10 +135,19 @@ calc.sst.par <- function(tag.sst, filename, sst.dir, dateVec, focalDim = NULL, s
   parallel::stopCluster(cl)
   
   #lapply
-  lik.sst <- lapply(ans, function(x) x / max(x, na.rm = T))
+  lik.sst <- lapply(ans, function(x) {
+    if (is.null(x) || (length(x) == 1 && is.na(x))) return(NA)
+    m <- max(x, na.rm = TRUE)
+    if (is.infinite(m) || is.na(m) || m == 0) return(matrix(0, nrow = nrow(x), ncol = ncol(x)))
+    x / m
+  })
 
   for (i in 1:T){
-    L.sst[,,i] <- lik.sst[[i]]
+    if (length(lik.sst[[i]]) == 1 && is.na(lik.sst[[i]])) {
+      L.sst[,,i] <- 0
+    } else {
+      L.sst[,,i] <- lik.sst[[i]]
+    }
   }
   
   print(paste('Making final likelihood raster...'))

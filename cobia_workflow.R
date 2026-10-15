@@ -62,7 +62,7 @@ get_cobia_meta <- function(tag_id, dir = base_dir) {
 }
 
 # Select target tag ID (e.g. "36419", "36420", "36421", "36422", "40302", "49157", "55550", "55552")
-instrument_id <- "36420"
+instrument_id <- "36422"
 tag_meta <- get_cobia_meta(instrument_id, base_dir)
 excel_file <- tag_meta$excel_file
 
@@ -408,12 +408,13 @@ for (m_name in names(combos)) {
   message("==================================================")
   
   # Form observation likelihood for this subset
+  use_bathy <- "bathy" %in% sel_liks
   L <- make.L(
     ras.list = L.res$L.rasters[sel_liks],
     iniloc = iniloc,
     dateVec = dateVec,
-    maxDepth = maxDepth_vec,
-    bathy = bathy
+    maxDepth = if (use_bathy) maxDepth_vec else rep(0, length(dateVec)),
+    bathy = if (use_bathy) bathy else NULL
   )
   
   # Parameter optimization

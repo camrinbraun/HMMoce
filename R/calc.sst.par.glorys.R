@@ -50,7 +50,9 @@ calc.sst.par.glorys <- function(tag.sst, filename, sst.dir, dateVec, focalDim = 
   # open day's sst data
   #nc <- RNetCDF::open.nc(dir(sst.dir, full.names = T)[1])
   # open nc and get the indices for the vars
-  nc1 <- raster::brick(dir(sst.dir, full.names = TRUE)[1])
+  fl_nc <- list.files(sst.dir, pattern = "\\.nc$", full.names = TRUE)
+  if (length(fl_nc) == 0) stop("Source raster file does not exist in sst.dir.")
+  nc1 <- raster::brick(fl_nc[1])
   tfile <- paste0(tempfile(), '.nc')
   raster::writeRaster(nc1, tfile)
   nc1 =  RNetCDF::open.nc(tfile)
@@ -174,10 +176,25 @@ calc.sst.par.glorys <- function(tag.sst, filename, sst.dir, dateVec, focalDim = 
   parallel::stopCluster(cl)
   
   #lapply
-  lik.sst <- lapply(ans, function(x) x / max(x, na.rm = T))
+  lik.sst <- lapply(ans, function(x) {
+    if (is.null(x) || (length(x) == 1 && is.na(x))) return(NA)
+    m <- max(x, na.rm = TRUE)
+    if (is.infinite(m) || is.na(m) || m == 0) return(matrix(0, nrow = nrow(x), ncol = ncol(x)))
+    x / m
+  })
 
   for (i in 1:T){
-    L.sst[,,i] <- lik.sst[[i]]
+    val <- lik.sst[[i]]
+    if (is.null(val) || (length(val) == 1 && is.na(val)) || inherits(val, "try-error")) {
+      L.sst[,,i] <- 0
+    } else if (all(dim(val) == dim(L.sst)[1:2])) {
+      L.sst[,,i] <- val
+    } else if (all(rev(dim(val)) == dim(L.sst)[1:2])) {
+      L.sst[,,i] <- t(val)
+    } else {
+      warning(paste0("Dimension mismatch for SST date ", dateVec[i], ": skipping slice."))
+      L.sst[,,i] <- 0
+    }
   }
   
   print(paste('Making final likelihood raster...'))

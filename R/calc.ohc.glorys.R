@@ -217,9 +217,23 @@ calc.ohc.glorys <- function(pdt, filename, isotherm = '', ohc.dir, dateVec, dept
       warning(paste('Warning: likint3 failed after trying with and without SE prediction of depth-temp profiles. This is most likely a divergent integral for ', dateVec[i], '...', sep=''))
     }
     
-    lik.ohc <- lik.try / max(lik.try, na.rm = TRUE)
-    L.ohc[,,i] = t(lik.ohc)
-
+    if (is.null(lik.try) || inherits(lik.try, "try-error") || length(lik.try) <= 1) {
+      L.ohc[,,i] <- 0
+    } else {
+      m <- max(lik.try, na.rm = TRUE)
+      if (is.na(m) || is.infinite(m) || m == 0) {
+        L.ohc[,,i] <- 0
+      } else {
+        lik.ohc <- lik.try / m
+        lik.mat <- t(lik.ohc)
+        if (all(dim(lik.mat) == dim(L.ohc)[1:2])) {
+          L.ohc[,,i] <- lik.mat
+        } else {
+          warning(paste0("Dimension mismatch for date ", dateVec[i], ": skipping slice."))
+          L.ohc[,,i] <- 0
+        }
+      }
+    }
   }
 
   print(paste('Making final likelihood raster...'))

@@ -19,23 +19,28 @@
 #' @export
 #'   
 
-make.L <- function(ras.list, iniloc, dateVec, maxDepth, bathy, known.locs = NULL){
+make.L <- function(ras.list, iniloc, dateVec, maxDepth = NULL, bathy = NULL, known.locs = NULL){
   
   ## generate blank results likelihood
   L <- ras.list[[1]] * 0
   L[is.na(L)] <- 0
   
   # check bathy mask requirements
-  if (length(maxDepth) != length(dateVec)){
-    stop('Error: Vector of daily maximum depths is not same length at date vector. Ensure mmd was zero-padded for days with NA data.')
+  if (!is.null(bathy) && !is.null(maxDepth) && any(maxDepth > 0)) {
+    if (length(maxDepth) != length(dateVec)){
+      stop('Error: Vector of daily maximum depths is not same length at date vector. Ensure mmd was zero-padded for days with NA data.')
+    }
+    
+    bathy <- raster::readAll(bathy)
+    ## convert a negative bathy grid to positive to match expectations and mask land
+    if (raster::cellStats(bathy, 'min', na.rm=T) < 0){
+      bathy <- bathy * -1
+      bathy[bathy < 0] <- NA
+    }
+    bathy <- raster::resample(bathy, L)
+  } else {
+    bathy <- NULL
   }
-  
-  ## convert a negative bathy grid to positive to match expectations and mask land
-  if (raster::cellStats(bathy, 'min', na.rm=T) < 0){
-    bathy <- bathy * -1
-    bathy[bathy < 0] <- NA
-  }
-  bathy <- raster::resample(bathy, L)
   
   ## COMBINE THE LIKELIHOOD LAYERS
   ## for each day:
@@ -85,8 +90,10 @@ make.L <- function(ras.list, iniloc, dateVec, maxDepth, bathy, known.locs = NULL
     }
     
     ## daily bathy mask
-    bathy.i <- maxDepth[i] * (1 - 20 / 100) # give 20% of max depth buffer for likelihood flexibility
-    L[[i]][bathy < bathy.i] <- 0
+    if (!is.null(bathy) && !is.null(maxDepth) && maxDepth[i] > 0) {
+      bathy.i <- maxDepth[i] * (1 - 20 / 100) # give 20% of max depth buffer for likelihood flexibility
+      L[[i]][bathy < bathy.i] <- 0
+    }
     
   }
   
@@ -98,7 +105,10 @@ make.L <- function(ras.list, iniloc, dateVec, maxDepth, bathy, known.locs = NULL
     # get lat/lon vectors
     #lon <- seq(raster::extent(L)[1], raster::extent(L)[2], length.out=dim(L)[2])
     #lat <- seq(raster::extent(L)[3], raster::extent(L)[4], length.out=dim(L)[1])
-    iniloc$date <- as.POSIXct(paste(iniloc$year, iniloc$month, iniloc$day, sep='-'), format='%Y-%m-%d', tz='UTC')
+    iniloc$date <- as.POSIXct(
+      sprintf('%04d-%02d-%02d', as.numeric(iniloc$year), as.numeric(iniloc$month), as.numeric(iniloc$day)),
+      tz = 'UTC'
+    )
     if (class(iniloc$date)[1] != class(dateVec)[1]) stop('dateVec and known.locs$date both need to be of class POSIXct.')
     iniloc$dateVec <- findInterval(iniloc$date, dateVec)
     

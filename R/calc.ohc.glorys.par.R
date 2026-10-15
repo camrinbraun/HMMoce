@@ -65,7 +65,9 @@ calc.ohc.glorys.par <- function(pdt, filename, isotherm = '', ohc.dir, dateVec, 
   if(isotherm != '') iso.def <- TRUE else iso.def <- FALSE
   
   # open nc and get the indices for the vars
-  nc1 <- raster::brick(dir(ohc.dir, full.names = TRUE)[1])
+  fl_nc <- list.files(ohc.dir, pattern = "\\.nc$", full.names = TRUE)
+  if (length(fl_nc) == 0) stop("Source raster file does not exist in ohc.dir.")
+  nc1 <- raster::brick(fl_nc[1])
   tfile <- paste0(tempfile(), '.nc')
   raster::writeRaster(nc1, tfile)
   nc1 =  RNetCDF::open.nc(tfile)
@@ -230,10 +232,25 @@ calc.ohc.glorys.par <- function(pdt, filename, isotherm = '', ohc.dir, dateVec, 
   parallel::stopCluster(cl)
   
   # lapply to put parallel answers back together
-  lik.ohc = lapply(ans, function(x) x / max(x, na.rm = TRUE))
-  
   for(i in 1:T){
-    L.ohc[,,i] = t(lik.ohc[[i]])
+    ans_i <- ans[[i]]
+    if (is.null(ans_i) || (length(ans_i) == 1 && is.na(ans_i)) || inherits(ans_i, "try-error")) {
+      L.ohc[,,i] <- 0
+    } else {
+      m <- max(ans_i, na.rm = TRUE)
+      if (is.na(m) || is.infinite(m) || m == 0) {
+        L.ohc[,,i] <- 0
+      } else {
+        lik.ohc <- ans_i / m
+        lik.mat <- t(lik.ohc)
+        if (all(dim(lik.mat) == dim(L.ohc)[1:2])) {
+          L.ohc[,,i] <- lik.mat
+        } else {
+          warning(paste0("Dimension mismatch for date ", dateVec[i], ": skipping slice."))
+          L.ohc[,,i] <- 0
+        }
+      }
+    }
   }
   
   print(paste('Making final likelihood raster...'))
