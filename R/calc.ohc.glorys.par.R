@@ -67,7 +67,20 @@ calc.ohc.glorys.par <- function(pdt, filename, isotherm = '', ohc.dir, dateVec, 
   # open nc and get the indices for the vars
   fl_nc <- list.files(ohc.dir, pattern = "\\.nc$", full.names = TRUE)
   if (length(fl_nc) == 0) stop("Source raster file does not exist in ohc.dir.")
-  nc1 <- raster::brick(fl_nc[1])
+  first_nc <- NULL
+  for (d_idx in seq_along(dateVec)) {
+    cand <- c(
+      file.path(ohc.dir, paste0(filename, '_', format(dateVec[d_idx], '%Y-%m-%d'), '.nc')),
+      file.path(ohc.dir, paste0(filename, '_', format(dateVec[d_idx], '%Y%m%d'), '.nc'))
+    )
+    cand <- cand[file.exists(cand)]
+    if (length(cand) > 0) {
+      first_nc <- cand[1]
+      break
+    }
+  }
+  if (is.null(first_nc)) first_nc <- fl_nc[1]
+  nc1 <- raster::brick(first_nc)
   tfile <- paste0(tempfile(), '.nc')
   raster::writeRaster(nc1, tfile)
   nc1 =  RNetCDF::open.nc(tfile)
@@ -165,64 +178,59 @@ calc.ohc.glorys.par <- function(pdt, filename, isotherm = '', ohc.dir, dateVec, 
     #suppressWarnings(
     pred.high = stats::predict(fit.high, newdata = glorysDep, se = TRUE, get.data = TRUE)
     
-    if (use.se){
-      # data frame for next step
+    if (use.se && all(is.finite(pred.low$se.fit)) && all(is.finite(pred.high$se.fit))){
       df = data.frame(low = pred.low$fit - pred.low$se.fit * sqrt(n),
                       high = pred.high$fit + pred.high$se.fit * sqrt(n),
                       depth = glorysDep)
+      if (any(!is.finite(df$low)) || any(!is.finite(df$high)) || min(df$low, na.rm = TRUE) < -2) {
+        df = data.frame(low = pred.low$fit,
+                        high = pred.high$fit,
+                        depth = glorysDep)
+      }
     } else{
-      # data frame for next step
-      df = data.frame(low = pred.low$fit,# - pred.low$se.fit * sqrt(n),
-                      high = pred.high$fit,# + pred.high$se.fit * sqrt(n),
+      df = data.frame(low = pred.low$fit,
+                      high = pred.high$fit,
                       depth = glorysDep)
     }
+    df$high <- pmax(df$high, df$low + 0.25)
 
     # isotherm is minimum temperature recorded for that time point
-    if(iso.def == FALSE) isotherm <- abs(min(df$low, na.rm = TRUE))
+    if(iso.def == FALSE) isotherm <- max(0, min(df$low, na.rm = TRUE))
     
     # perform tag data integration at limits of model fits
     minT.ohc <- cp * rho * sum(df$low - isotherm, na.rm = TRUE) / 10000
     maxT.ohc <- cp * rho * sum(df$high - isotherm, na.rm = TRUE) / 10000
     
     # Perform glorys integration
-    #dat[dat < isotherm] <- NA
-    dat <- dat - isotherm
-    ohc <- cp * rho * apply(dat[,,depIdx], 1:2, sum, na.rm = TRUE) / 10000 
+    ohc <- cp * rho * apply(dat[,,depIdx, drop = FALSE] - isotherm, 1:2, sum, na.rm = TRUE) / 10000 
     ohc[ohc == 0] <- NA
     
     # calc sd of OHC
-    # focal calc on mean temp and write to sd var
     r = raster::flip(raster::raster(t(ohc)), 2)
     sdx = raster::focal(r, w = matrix(1, nrow = 9, ncol = 9),
                         fun = function(x) stats::sd(x, na.rm = TRUE), pad=TRUE)
     sdx = t(raster::as.matrix(raster::flip(sdx, 2)))
 
-    # compare glorys to that day's tag-based ohc
-    #lik.ohc <- likint3(ohc, sdx, minT.ohc, maxT.ohc)
-    #lik.ohc <- lik.ohc / max(lik.ohc, na.rm = T)
-    
     lik.try <- try(likint3(ohc, sdx, minT.ohc, maxT.ohc), TRUE)
     
-    if(class(lik.try)[1] == 'try-error' & use.se == FALSE){
-      
-      # try ohc again with use.se = T
-      df = data.frame(low = pred.low$fit - pred.low$se.fit * sqrt(n),
-                      high = pred.high$fit + pred.high$se.fit * sqrt(n),
+    if (inherits(lik.try, 'try-error') || max(lik.try, na.rm = TRUE) == 0){
+      df = data.frame(low = pred.low$fit,
+                      high = pmax(pred.high$fit, pred.low$fit + 0.25),
                       depth = glorysDep)
-      
+      if(iso.def == FALSE) isotherm <- max(0, min(df$low, na.rm = TRUE))
       minT.ohc <- cp * rho * sum(df$low - isotherm, na.rm = TRUE) / 10000
       maxT.ohc <- cp * rho * sum(df$high - isotherm, na.rm = TRUE) / 10000
-      
+      ohc <- cp * rho * apply(dat[,,depIdx, drop = FALSE] - isotherm, 1:2, sum, na.rm = TRUE) / 10000 
+      ohc[ohc == 0] <- NA
+      r = raster::flip(raster::raster(t(ohc)), 2)
+      sdx = raster::focal(r, w = matrix(1, nrow = 9, ncol = 9),
+                          fun = function(x) stats::sd(x, na.rm = TRUE), pad=TRUE)
+      sdx = t(raster::as.matrix(raster::flip(sdx, 2)))
       lik.try <- try(likint3(ohc, sdx, minT.ohc, maxT.ohc), TRUE)
-      
-      if (class(lik.try)[1] == 'try-error'){
+      if (inherits(lik.try, 'try-error')){
         lik.try <- ohc * 0
         warning(paste('Warning: likint3 failed after trying with and without SE prediction of depth-temp profiles. This is most likely a divergent integral for ', dateVec[i], '...', sep=''))
       }
-      
-    } else if (class(lik.try)[1] == 'try-error' & use.se == TRUE){
-      lik.try <- ohc * 0
-      warning(paste('Warning: likint3 failed after trying with and without SE prediction of depth-temp profiles. This is most likely a divergent integral for ', dateVec[i], '...', sep=''))
     }
     
     lik.try

@@ -62,7 +62,7 @@ get_cobia_meta <- function(tag_id, dir = base_dir) {
 }
 
 # Select target tag ID (e.g. "36419", "36420", "36421", "36422", "40302", "49157", "55550", "55552")
-instrument_id <- "36421"
+instrument_id <- "40302"
 tag_meta <- get_cobia_meta(instrument_id, base_dir)
 excel_file <- tag_meta$excel_file
 
@@ -152,8 +152,8 @@ if (all(c("latitude", "longitude") %in% names(etuff$etuff))) {
     dplyr::filter(!is.na(latitude) & !is.na(longitude)) %>%
     dplyr::select(Date = DateTime, Latitude = latitude, Longitude = longitude) %>%
     dplyr::mutate(
-      Error.Semi.minor.axis = 50,
-      Error.Semi.major.axis = 100,
+      Error.Semi.minor.axis = 70000,
+      Error.Semi.major.axis = 100000,
       Offset = 0,
       Offset.orientation = 0
     ) %>%
@@ -382,15 +382,29 @@ L <- make.L(
 saveRDS(L, file.path(out_dir, "L.master.rds"))
 message("Master observation likelihood L constructed: dim = ", paste(dim(L), collapse = " x "))
 
+# check L visually ----
+library(terra)
+L_rast <- flip(
+  rast(
+    aperm(L, c(3, 2, 1)),
+    extent = ext(min(lon_coords), max(lon_coords), min(lat_coords), max(lat_coords)),
+    crs = "EPSG:4326"
+  ),
+  direction = "vertical"
+)
+names(L_rast) <- as.character(dateVec)
+# Plot specific days
+plot(L_rast[[c(1, 10, 20, 30, 50, 93)]])
+
 # 7. Model Comparison with Fixed Movement Parameters -----------------------
 
 # 7.1 Fixed Movement Kernel Settings
-sigmas <- c(2, .5)
+sigmas <- c(5, 1)
 sizes  <- rep(ceiling(sigmas[1] * 4), 2)
 if (sizes[1] %% 2 == 0) sizes[1] <- sizes[1] + 1
 if (sizes[2] %% 2 == 0) sizes[2] <- sizes[2] + 1
 muadvs <- c(0, 0)
-pb     <- c(0.9,.9)
+pb     <- c(0.8,.8)
 P      <- matrix(c(pb[1], 1 - pb[1], 1 - pb[2], pb[2]), nrow = 2, ncol = 2, byrow = TRUE)
 
 K1 <- HMMoce:::gausskern.pg(sizes[1], sigmas[1], muadv = muadvs[1])
@@ -402,9 +416,9 @@ m_states <- 2
 
 # 7.2 Define Likelihood Combinations to Test
 combos <- list(
-  ohc_light = c("ohc", "light"),
-  ohc       = c("ohc"),
-  light     = c("light")
+  ohc_light = c("ohc", "light")
+  # ohc       = c("ohc"),
+  # light     = c("light")
 )
 combos <- combos[sapply(combos, function(x) all(x %in% names(L.res$L.rasters)))]
 

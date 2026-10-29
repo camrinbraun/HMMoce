@@ -57,36 +57,24 @@ make.L <- function(ras.list, iniloc, dateVec, maxDepth = NULL, bathy = NULL, kno
       }
     }
     
-    ## check for layers with all NA
-    sum_NA <- raster::cellStats(!is.na(s), sum, na.rm=T) == 0
+    ## check for layers with all NA or all <= 0
+    sum_NA <- raster::cellStats(!is.na(s), sum, na.rm = TRUE) == 0
+    max_vals <- suppressWarnings(raster::cellStats(s, 'max', na.rm = TRUE))
+    empty_layer <- sum_NA | is.na(max_vals) | is.infinite(max_vals) | (max_vals <= 0)
     
-    ## check for layers that sum to 0
-    sum_zero <- rep(NA, raster::nlayers(s))
-    for (bb in 1:raster::nlayers(s)){
-      s_bb <- s[[bb]]
-      s_bb[s_bb == 0] <- 1
-      
-      sum_zero[bb] <- ifelse(raster::cellStats(s_bb, 'sum') == raster::ncell(s), TRUE, FALSE)
-      
-    }
-    
-    ## if all layers are NA, just fill with a 0 raster
-    if (length(which(sum_NA)) == raster::nlayers(s)){
-      ## nothing left for this iteration
+    ## if all layers are empty, skip to next day
+    if (all(empty_layer)){
       next
-      
-      ## if a layer is all NA, drop it
-    } else if (length(which(sum_NA)) < raster::nlayers(s) & length(which(sum_NA)) > 0){
-      s <- s[[-which(sum_NA)]]
-    } else{
-      ## do nothing
+    } else if (any(empty_layer)){
+      s <- s[[-which(empty_layer)]]
     }
     
     ## sum & normalize whatever layers remain
     if (raster::nlayers(s) == 1){
-      L[[i]] <- s / raster::cellStats(s, 'max') ## do not remove NA yet
+      L[[i]] <- s / raster::cellStats(s, 'max', na.rm = TRUE)
     } else{
-      L[[i]] <- sum(s) / raster::cellStats(sum(s), 'max') ## do not remove NA yet  
+      s_sum <- sum(s, na.rm = TRUE)
+      L[[i]] <- s_sum / raster::cellStats(s_sum, 'max', na.rm = TRUE)
     }
     
     ## daily bathy mask

@@ -146,8 +146,12 @@ microwave_to_etuff <- function(excel_file, meta_row, out_file = NULL, obs_types_
     )
     if (!is.null(ll_raw) && ncol(ll_raw) >= 3) {
       # First column: date / excel serial; col 2: lat; col 3: lon
-      dates_val <- suppressWarnings(as.numeric(ll_raw[[1]]))
-      dt <- as.POSIXct(dates_val * 86400, origin = "1899-12-30", tz = "UTC")
+      if (inherits(ll_raw[[1]], c("POSIXt", "Date"))) {
+        dt <- as.POSIXct(ll_raw[[1]], tz = "UTC")
+      } else {
+        dates_val <- suppressWarnings(as.numeric(ll_raw[[1]]))
+        dt <- as.POSIXct(dates_val * 86400, origin = "1899-12-30", tz = "UTC")
+      }
       lat <- as.numeric(ll_raw[[2]])
       lon <- as.numeric(ll_raw[[3]])
       

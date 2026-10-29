@@ -152,8 +152,8 @@ if (all(c("latitude", "longitude") %in% names(etuff$etuff))) {
     dplyr::filter(!is.na(latitude) & !is.na(longitude)) %>%
     dplyr::select(Date = DateTime, Latitude = latitude, Longitude = longitude) %>%
     dplyr::mutate(
-      Error.Semi.minor.axis = 50,
-      Error.Semi.major.axis = 100,
+      Error.Semi.minor.axis = 70000,
+      Error.Semi.major.axis = 100000,
       Offset = 0,
       Offset.orientation = 0
     ) %>%
