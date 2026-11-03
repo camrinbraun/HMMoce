@@ -502,9 +502,9 @@ tr <- calc.track(s, g = L.res$g, dateVec = dateVec, iniloc = iniloc, method = "m
 
   # Diagnostic PNG
   plot_file <- file.path(out_dir, paste0(instrument_id, "_", m_name, "_plotHMM.png"))
-png(plot_file, width = 8, height = 9, units = "in", res = 300)
-  plotHMM(s = s, track = tr, dateVec = dateVec, ptt = paste(instrument_id, m_name), behav.pts = TRUE, save.plot = FALSE)
-dev.off()
+  png(plot_file, width = 8, height = 9, units = "in", res = 300)
+  plotHMM(distr = s, track = tr, dateVec = dateVec, ptt = paste(instrument_id, m_name), behav.pts = TRUE, save.plot = FALSE)
+  dev.off()
   
   # Endpoint error (distance to popoff in km)
   last_idx <- nrow(tr)

@@ -53,7 +53,7 @@ plotHMM <- function(distr, track, dateVec, ptt, known = NULL, resid = FALSE, beh
     # get states from s
     sv <- -(apply(distr[1,,,], 1, sum) > apply(distr[2,,,], 1, sum)) + 1
     sv[sv == 0] <- NA
-    grDevices::graphics.off();
+    if(save.plot) grDevices::graphics.off()
     
     
     if(save.plot) grDevices::pdf(paste(ptt, '_track_results.pdf', sep = ''), width = 7, height = 8)

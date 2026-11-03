@@ -233,7 +233,7 @@ if (!is.null(lightloc) && nrow(lightloc) > 0) {
       locs.grid = locs.grid,
       dateVec = dateVec,
       errEll = FALSE,
-      lon_only = TRUE
+      lon_only = FALSE # TRUE
     )
     saveRDS(L.light, light_rds)
   } else {
@@ -360,7 +360,7 @@ if (length(glorys_files) > 0 && !is.null(tag.sst) && nrow(tag.sst) > 0) {
 }
 
 ## 6.4 Combine Available Likelihood Rasters (Light + OHC only) -----------------
-L.rasters <- list(light = L.light, ohc = L.ohc)
+L.rasters <- list(light = L.light, ohc = L.ohc, bathy = L.bathy)
 L.rasters <- L.rasters[!sapply(L.rasters, is.null)]
 message("Combining observation likelihoods: ", paste(names(L.rasters), collapse = ", "))
 
@@ -371,9 +371,13 @@ L.res <- resample.grid(L.rasters, L.rasters[[resamp.idx]])
 # Zero-out maxDepth filtering since bathymetry limiting is not used
 maxDepth_vec <- rep(0, length(dateVec))
 
+# weight of individual likelihoods
+weights <- c(light = 1.0, sst = 0.0001, ohc = 1.0, bathy = 0.0001)
+ras_weighted <- Map(function(r, nm) r * weights[[nm]], L.res$L.rasters, names(L.res$L.rasters))
+
 # Form master observation likelihood array
 L <- make.L(
-  ras.list = L.res$L.rasters,
+  ras.list = ras_weighted,
   iniloc = iniloc,
   dateVec = dateVec,
   maxDepth = maxDepth_vec,
@@ -399,12 +403,12 @@ plot(L_rast[[c(1, 10, 20, 30, 50, 93)]])
 # 7. Model Comparison with Fixed Movement Parameters -----------------------
 
 # 7.1 Fixed Movement Kernel Settings
-sigmas <- c(5, 1)
+sigmas <- c(20, 1)
 sizes  <- rep(ceiling(sigmas[1] * 4), 2)
 if (sizes[1] %% 2 == 0) sizes[1] <- sizes[1] + 1
 if (sizes[2] %% 2 == 0) sizes[2] <- sizes[2] + 1
 muadvs <- c(0, 0)
-pb     <- c(0.8,.8)
+pb     <- c(0.85,.85)
 P      <- matrix(c(pb[1], 1 - pb[1], 1 - pb[2], pb[2]), nrow = 2, ncol = 2, byrow = TRUE)
 
 K1 <- HMMoce:::gausskern.pg(sizes[1], sigmas[1], muadv = muadvs[1])
@@ -416,9 +420,10 @@ m_states <- 2
 
 # 7.2 Define Likelihood Combinations to Test
 combos <- list(
-  ohc_light = c("ohc", "light")
-  # ohc       = c("ohc"),
-  # light     = c("light")
+  ohc_light = c("ohc", "light"),
+  ohc       = c("ohc"),
+  light     = c("light"),
+  light_bathy = c("light","bathy")
 )
 combos <- combos[sapply(combos, function(x) all(x %in% names(L.res$L.rasters)))]
 
@@ -435,7 +440,7 @@ for (m_name in names(combos)) {
   # Form observation likelihood for this subset
   use_bathy <- "bathy" %in% sel_liks
   L <- make.L(
-    ras.list = L.res$L.rasters[sel_liks],
+    ras.list = ras_weighted[sel_liks],
     iniloc = iniloc,
     dateVec = dateVec,
     maxDepth = if (use_bathy) maxDepth_vec else rep(0, length(dateVec)),
@@ -467,7 +472,7 @@ for (m_name in names(combos)) {
   # Diagnostic PNG
   plot_file <- file.path(out_dir, paste0(instrument_id, "_", m_name, "_fixed_plotHMM.png"))
   png(plot_file, width = 8, height = 9, units = "in", res = 300)
-  HMMoce::plotHMM(distr = s, track = tr, dateVec = dateVec, ptt = paste(instrument_id, m_name, "fixed"), behav.pts = TRUE, save.plot = FALSE)
+  plotHMM(distr = s, track = tr, dateVec = dateVec, ptt = paste(instrument_id, m_name, "fixed"), behav.pts = TRUE, save.plot = FALSE)
   dev.off()
   
   # Endpoint error (distance to popoff in km)
