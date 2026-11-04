@@ -350,12 +350,25 @@ download_glorys <- TRUE
 # Detect copernicusmarine executable path
 cm_cli <- Sys.which("copernicusmarine")
 if (cm_cli == "") {
-  user_cm <- file.path(Sys.getenv("APPDATA"), "Python", "Python313", "Scripts", "copernicusmarine.exe")
-  if (file.exists(user_cm)) cm_cli <- paste0('"', user_cm, '"') else cm_cli <- "copernicusmarine"
+  cm_candidates <- c(
+    path.expand("~/miniforge3/bin/copernicusmarine"),
+    path.expand("~/mambaforge/bin/copernicusmarine"),
+    path.expand("~/miniconda3/bin/copernicusmarine"),
+    path.expand("~/.local/bin/copernicusmarine"),
+    file.path(Sys.getenv("APPDATA"), "Python", "Python313", "Scripts", "copernicusmarine.exe")
+  )
+  cm_hit <- Find(file.exists, cm_candidates)
+  cm_cli <- if (!is.null(cm_hit)) shQuote(cm_hit) else "copernicusmarine"
+} else {
+  cm_cli <- shQuote(unname(cm_cli))
 }
 
+# Check whether installed copernicusmarine version supports --force-download (v1.x vs v2.x)
+cm_help <- tryCatch(system(paste(cm_cli, "subset --help"), intern = TRUE, ignore.stderr = TRUE), error = function(e) character())
+cm_force_flag <- if (any(grepl("--force-download", cm_help, fixed = TRUE))) "--force-download" else "--overwrite"
+
 if (download_glorys) {
-  message("Checking/downloading GLORYS daily files for date range...")
+  message("Checking/downloading GLORYS daily files for date range using: ", cm_cli)
   temp_product_id <- "cmems_mod_glo_phy_my_0.083deg_P1D-m"
   
   # Identify missing dates only
@@ -367,18 +380,18 @@ if (download_glorys) {
     message("Downloading ", length(missing_idx), " files using ", n_workers, " parallel workers...")
     
     cl <- parallel::makeCluster(n_workers)
-    parallel::clusterExport(cl, varlist = c("cm_cli", "temp_product_id", "sp.lim", "glorys.dir", "dateVec"), envir = environment())
+    parallel::clusterExport(cl, varlist = c("cm_cli", "cm_force_flag", "temp_product_id", "sp.lim", "glorys.dir", "dateVec"), envir = environment())
     
-    parallel::parLapply(cl, missing_idx, function(i) {
+    dl_res <- parallel::parLapply(cl, missing_idx, function(i) {
       d_str <- format(as.Date(dateVec[i]), "%Y%m%d")
       d_dash <- format(as.Date(dateVec[i]), "%Y-%m-%d")
       out_nc <- paste0(temp_product_id, "_", d_str, ".nc")
       cmd <- sprintf(
-        '%s subset -i %s -x %f -X %f -y %f -Y %f -t %s -T %s -z 0 -Z 2000 --variable thetao -o "%s" -f "%s" --force-download',
+        '%s subset -i %s -x %f -X %f -y %f -Y %f -t %s -T %s -z 0 -Z 2000 --variable thetao -o "%s" -f "%s" %s',
         cm_cli, temp_product_id, sp.lim$lonmin, sp.lim$lonmax, sp.lim$latmin, sp.lim$latmax,
-        d_dash, d_dash, glorys.dir, out_nc
+        d_dash, d_dash, glorys.dir, out_nc, cm_force_flag
       )
-      system(cmd, ignore.stdout = TRUE, ignore.stderr = TRUE)
+      system(cmd, intern = TRUE)
     })
     parallel::stopCluster(cl)
     message("Parallel download complete.")
