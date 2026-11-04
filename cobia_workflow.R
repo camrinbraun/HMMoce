@@ -9,15 +9,85 @@ library(lubridate)
 library(ggplot2)
 library(tags2etuff)
 # source("c:/Users/benjamin.galuardi/Documents/GitHub/HMMoce/microwave_to_etuff.R")
-devtools::load_all("c:/Users/benjamin.galuardi/Documents/GitHub/HMMoce")
-# invisible(lapply(list.files("c:/Users/benjamin.galuardi/Documents/GitHub/HMMoce/R", 
-#                             pattern = "\\.[Rr]$", full.names = TRUE), source))
+devtools::load_all(".")
 
-base_dir <- "G:/.shortcut-targets-by-id/1jN4NVXfNcxVqIPxVvl3k3e3e4W3J5HgU/Cobia Shared Files"
+gdrive_root_id <- "1jN4NVXfNcxVqIPxVvl3k3e3e4W3J5HgU" # "Cobia Shared Files"
+local_gdrive   <- "G:/.shortcut-targets-by-id/1jN4NVXfNcxVqIPxVvl3k3e3e4W3J5HgU/Cobia Shared Files"
+use_gdrive_api <- !dir.exists(local_gdrive)
+
+if (!use_gdrive_api) {
+  base_dir <- local_gdrive
+} else {
+  library(googledrive)
+  base_dir <- file.path(getwd(), "cobia_gdrive_cache")
+
+  get_or_create_gdrive_folder <- function(parent_id, folder_name) {
+    items <- drive_ls(as_id(parent_id))
+    hit <- items[items$name == folder_name, ]
+    if (nrow(hit) > 0) return(hit$id[1])
+    drive_mkdir(folder_name, path = as_id(parent_id))$id[1]
+  }
+
+  sync_gdrive_tag <- function(tag_id, base_dir, root_id = gdrive_root_id) {
+    root_ls <- drive_ls(as_id(root_id))
+
+    # 1. Cobia tracks.csv
+    tracks_local <- file.path(base_dir, "Data files", "Cobia tracks.csv")
+    if (!file.exists(tracks_local)) {
+      dir.create(dirname(tracks_local), recursive = TRUE, showWarnings = FALSE)
+      df_id <- root_ls$id[root_ls$name == "Data files"][1]
+      tr_f  <- drive_ls(as_id(df_id), pattern = "Cobia tracks\\.csv")
+      drive_download(as_id(tr_f$id[1]), path = tracks_local, overwrite = TRUE)
+    }
+
+    # 2. Tag Excel file
+    folder_nm <- paste0(tag_id, "_updated(2013)")
+    xls_nm    <- paste0(folder_nm, ".xls")
+    xls_local <- file.path(base_dir, "Updated PSAT Reports", folder_nm, xls_nm)
+    if (!file.exists(xls_local)) {
+      dir.create(dirname(xls_local), recursive = TRUE, showWarnings = FALSE)
+      psat_id <- root_ls$id[root_ls$name == "Updated PSAT Reports"][1]
+      tag_f   <- drive_ls(as_id(psat_id), pattern = paste0("^", tag_id, "_updated"))
+      xls_f   <- drive_ls(as_id(tag_f$id[1]), pattern = "\\.xls$")
+      drive_download(as_id(xls_f$id[1]), path = xls_local, overwrite = TRUE)
+    }
+
+    # 3. Existing cached outputs in hmmoce-rerun/<tag_id>
+    rerun_hit <- root_ls[root_ls$name == "hmmoce-rerun", ]
+    if (nrow(rerun_hit) > 0) {
+      rerun_ls <- drive_ls(as_id(rerun_hit$id[1]))
+      tag_out  <- rerun_ls[rerun_ls$name == as.character(tag_id), ]
+      if (nrow(tag_out) > 0) {
+        local_tag_out <- file.path(base_dir, "hmmoce-rerun", tag_id)
+        dir.create(local_tag_out, recursive = TRUE, showWarnings = FALSE)
+        remote_files <- drive_ls(as_id(tag_out$id[1]))
+        for (k in seq_len(nrow(remote_files))) {
+          dest <- file.path(local_tag_out, remote_files$name[k])
+          if (!file.exists(dest)) {
+            drive_download(as_id(remote_files$id[k]), path = dest, overwrite = TRUE)
+          }
+        }
+      }
+    }
+  }
+
+  push_gdrive_outputs <- function(tag_id, out_dir, files = NULL, root_id = gdrive_root_id) {
+    if (!use_gdrive_api) return(invisible(NULL))
+    rerun_id <- get_or_create_gdrive_folder(root_id, "hmmoce-rerun")
+    tag_id_drive <- get_or_create_gdrive_folder(rerun_id, as.character(tag_id))
+    if (is.null(files)) files <- list.files(out_dir, full.names = TRUE)
+    files <- files[file.exists(files) & !dir.exists(files)]
+    for (f in files) {
+      message("Uploading to Google Drive: ", basename(f))
+      drive_put(media = f, path = as_id(tag_id_drive), name = basename(f))
+    }
+  }
+}
 rerun_dir <- file.path(base_dir, "hmmoce-rerun")
 
 get_cobia_meta <- function(tag_id, dir = base_dir) {
   tag_id <- as.character(tag_id)
+  if (use_gdrive_api) sync_gdrive_tag(tag_id, dir)
   tag_dir <- file.path(dir, "Updated PSAT Reports", paste0(tag_id, "_updated(2013)"))
   excel_file <- file.path(tag_dir, paste0(tag_id, "_updated(2013).xls"))
   
@@ -595,3 +665,6 @@ p_track <- p_track +
 ggsave(file.path(out_dir, paste0(instrument_id, "_track_map.png")), plot = p_track, width = 9, height = 7, dpi = 300)
 message("Saved track map to: ", file.path(out_dir, paste0(instrument_id, "_track_map.png")))
 print(p_track)
+
+if (use_gdrive_api) push_gdrive_outputs(instrument_id, out_dir)
+

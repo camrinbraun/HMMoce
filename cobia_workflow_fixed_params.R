@@ -9,15 +9,85 @@ library(lubridate)
 library(ggplot2)
 library(tags2etuff)
 # source("c:/Users/benjamin.galuardi/Documents/GitHub/HMMoce/microwave_to_etuff.R")
-devtools::load_all("c:/Users/benjamin.galuardi/Documents/GitHub/HMMoce")
-# invisible(lapply(list.files("c:/Users/benjamin.galuardi/Documents/GitHub/HMMoce/R", 
-#                             pattern = "\\.[Rr]$", full.names = TRUE), source))
+devtools::load_all(".")
 
-base_dir <- "G:/.shortcut-targets-by-id/1jN4NVXfNcxVqIPxVvl3k3e3e4W3J5HgU/Cobia Shared Files"
+gdrive_root_id <- "1jN4NVXfNcxVqIPxVvl3k3e3e4W3J5HgU" # "Cobia Shared Files"
+local_gdrive   <- "G:/.shortcut-targets-by-id/1jN4NVXfNcxVqIPxVvl3k3e3e4W3J5HgU/Cobia Shared Files"
+use_gdrive_api <- !dir.exists(local_gdrive)
+
+if (!use_gdrive_api) {
+  base_dir <- local_gdrive
+} else {
+  library(googledrive)
+  base_dir <- file.path(getwd(), "cobia_gdrive_cache")
+
+  get_or_create_gdrive_folder <- function(parent_id, folder_name) {
+    items <- drive_ls(as_id(parent_id))
+    hit <- items[items$name == folder_name, ]
+    if (nrow(hit) > 0) return(hit$id[1])
+    drive_mkdir(folder_name, path = as_id(parent_id))$id[1]
+  }
+
+  sync_gdrive_tag <- function(tag_id, base_dir, root_id = gdrive_root_id) {
+    root_ls <- drive_ls(as_id(root_id))
+
+    # 1. Cobia tracks.csv
+    tracks_local <- file.path(base_dir, "Data files", "Cobia tracks.csv")
+    if (!file.exists(tracks_local)) {
+      dir.create(dirname(tracks_local), recursive = TRUE, showWarnings = FALSE)
+      df_id <- root_ls$id[root_ls$name == "Data files"][1]
+      tr_f  <- drive_ls(as_id(df_id), pattern = "Cobia tracks\\.csv")
+      drive_download(as_id(tr_f$id[1]), path = tracks_local, overwrite = TRUE)
+    }
+
+    # 2. Tag Excel file
+    folder_nm <- paste0(tag_id, "_updated(2013)")
+    xls_nm    <- paste0(folder_nm, ".xls")
+    xls_local <- file.path(base_dir, "Updated PSAT Reports", folder_nm, xls_nm)
+    if (!file.exists(xls_local)) {
+      dir.create(dirname(xls_local), recursive = TRUE, showWarnings = FALSE)
+      psat_id <- root_ls$id[root_ls$name == "Updated PSAT Reports"][1]
+      tag_f   <- drive_ls(as_id(psat_id), pattern = paste0("^", tag_id, "_updated"))
+      xls_f   <- drive_ls(as_id(tag_f$id[1]), pattern = "\\.xls$")
+      drive_download(as_id(xls_f$id[1]), path = xls_local, overwrite = TRUE)
+    }
+
+    # 3. Existing cached outputs in hmmoce-rerun/<tag_id>
+    rerun_hit <- root_ls[root_ls$name == "hmmoce-rerun", ]
+    if (nrow(rerun_hit) > 0) {
+      rerun_ls <- drive_ls(as_id(rerun_hit$id[1]))
+      tag_out  <- rerun_ls[rerun_ls$name == as.character(tag_id), ]
+      if (nrow(tag_out) > 0) {
+        local_tag_out <- file.path(base_dir, "hmmoce-rerun", tag_id)
+        dir.create(local_tag_out, recursive = TRUE, showWarnings = FALSE)
+        remote_files <- drive_ls(as_id(tag_out$id[1]))
+        for (k in seq_len(nrow(remote_files))) {
+          dest <- file.path(local_tag_out, remote_files$name[k])
+          if (!file.exists(dest)) {
+            drive_download(as_id(remote_files$id[k]), path = dest, overwrite = TRUE)
+          }
+        }
+      }
+    }
+  }
+
+  push_gdrive_outputs <- function(tag_id, out_dir, files = NULL, root_id = gdrive_root_id) {
+    if (!use_gdrive_api) return(invisible(NULL))
+    rerun_id <- get_or_create_gdrive_folder(root_id, "hmmoce-rerun")
+    tag_id_drive <- get_or_create_gdrive_folder(rerun_id, as.character(tag_id))
+    if (is.null(files)) files <- list.files(out_dir, full.names = TRUE)
+    files <- files[file.exists(files) & !dir.exists(files)]
+    for (f in files) {
+      message("Uploading to Google Drive: ", basename(f))
+      drive_put(media = f, path = as_id(tag_id_drive), name = basename(f))
+    }
+  }
+}
 rerun_dir <- file.path(base_dir, "hmmoce-rerun")
 
 get_cobia_meta <- function(tag_id, dir = base_dir) {
   tag_id <- as.character(tag_id)
+  if (use_gdrive_api) sync_gdrive_tag(tag_id, dir)
   tag_dir <- file.path(dir, "Updated PSAT Reports", paste0(tag_id, "_updated(2013)"))
   excel_file <- file.path(tag_dir, paste0(tag_id, "_updated(2013).xls"))
   
@@ -228,11 +298,11 @@ if (!is.null(lightloc) && nrow(lightloc) > 0) {
   light_rds <- file.path(out_dir, "L.light.rds")
   if (!file.exists(light_rds)) {
     message("Calculating light likelihood (L.light)...")
-    L.light <- calc.lightloc(
+    L.light <- calc.lightloc(lightloc = 
       lightloc,
       locs.grid = locs.grid,
       dateVec = dateVec,
-      errEll = FALSE,
+      errEll = TRUE, #FALSE,
       lon_only = FALSE # TRUE
     )
     saveRDS(L.light, light_rds)
@@ -360,7 +430,7 @@ if (length(glorys_files) > 0 && !is.null(tag.sst) && nrow(tag.sst) > 0) {
 }
 
 ## 6.4 Combine Available Likelihood Rasters (Light + OHC only) -----------------
-L.rasters <- list(light = L.light, ohc = L.ohc, bathy = L.bathy)
+L.rasters <- list(light = L.light, ohc = L.ohc, bathy = L.bathy, sst = L.sst)
 L.rasters <- L.rasters[!sapply(L.rasters, is.null)]
 message("Combining observation likelihoods: ", paste(names(L.rasters), collapse = ", "))
 
@@ -372,7 +442,7 @@ L.res <- resample.grid(L.rasters, L.rasters[[resamp.idx]])
 maxDepth_vec <- rep(0, length(dateVec))
 
 # weight of individual likelihoods
-weights <- c(light = 1.0, sst = 0.0001, ohc = 1.0, bathy = 0.0001)
+weights <- c(light = 2.0, sst = 1.0, ohc = 1.0, bathy = 1.0)
 ras_weighted <- Map(function(r, nm) r * weights[[nm]], L.res$L.rasters, names(L.res$L.rasters))
 
 # Form master observation likelihood array
@@ -402,13 +472,18 @@ plot(L_rast[[c(1, 10, 20, 30, 50, 93)]])
 
 # 7. Model Comparison with Fixed Movement Parameters -----------------------
 
-# 7.1 Fixed Movement Kernel Settings
-sigmas <- c(20, 1)
+# 7.1 Fixed Movement Kernel Settings: found nll estimates 
+
+# grid <- expand.grid(s1 = c(3, 4.5, 6), s2 = c(0.5, 1, 1.5), p11 = c(0.8, 0.9), p22 = c(0.8, 0.9))
+# grid$nll <- apply(grid, 1, function(p) HMMoce:::neg.log.lik.fun(as.numeric(p), g = L.res$g, L = L))
+# grid[order(grid$nll), ]
+
+sigmas <- c(6, 1.5)
 sizes  <- rep(ceiling(sigmas[1] * 4), 2)
 if (sizes[1] %% 2 == 0) sizes[1] <- sizes[1] + 1
 if (sizes[2] %% 2 == 0) sizes[2] <- sizes[2] + 1
 muadvs <- c(0, 0)
-pb     <- c(0.85,.85)
+pb     <- c(0.8,.9)
 P      <- matrix(c(pb[1], 1 - pb[1], 1 - pb[2], pb[2]), nrow = 2, ncol = 2, byrow = TRUE)
 
 K1 <- HMMoce:::gausskern.pg(sizes[1], sigmas[1], muadv = muadvs[1])
@@ -423,7 +498,9 @@ combos <- list(
   ohc_light = c("ohc", "light"),
   ohc       = c("ohc"),
   light     = c("light"),
-  light_bathy = c("light","bathy")
+  light_bathy = c("light","bathy"),
+  light_bathy_sst = c("light","bathy", "sst"),
+  light_ohc_bathy = c("light","bathy", "ohc")
 )
 combos <- combos[sapply(combos, function(x) all(x %in% names(L.res$L.rasters)))]
 
@@ -563,4 +640,7 @@ p_track <- p_track +
 ggsave(file.path(out_dir, paste0(instrument_id, "_track_map.png")), plot = p_track, width = 9, height = 7, dpi = 300)
 message("Saved track map to: ", file.path(out_dir, paste0(instrument_id, "_track_map.png")))
 print(p_track)
+
+if (use_gdrive_api) push_gdrive_outputs(instrument_id, out_dir)
+
 
