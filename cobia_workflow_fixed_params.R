@@ -491,12 +491,25 @@ plot(L_rast[[c(1, 10, 20, 30, 50, 93)]])
 # grid$nll <- apply(grid, 1, function(p) HMMoce:::neg.log.lik.fun(as.numeric(p), g = L.res$g, L = L))
 # grid[order(grid$nll), ]
 
-sigmas <- c(6, 1.5)
+### to optimize, run this :----
+
+fit <- opt.params(
+  pars.init    = c(4, 1, 0.85, 0.85),
+  lower.bounds = c(2, 0.2, 0.2, 0.2),
+  upper.bounds = c(100, 4.0, 0.95, 0.95),
+  g = L.res$g, L = L, alg.opt = "rtmb"
+)
+
+
+# sigmas <- c(6, 1.5)
+sigmas <- fit$par[1:2]
 sizes  <- rep(ceiling(sigmas[1] * 4), 2)
 if (sizes[1] %% 2 == 0) sizes[1] <- sizes[1] + 1
 if (sizes[2] %% 2 == 0) sizes[2] <- sizes[2] + 1
 muadvs <- c(0, 0)
-pb     <- c(0.8,.9)
+
+# pb     <- c(0.8,.9)
+pb = sigmas <- fit$par[3:4]
 P      <- matrix(c(pb[1], 1 - pb[1], 1 - pb[2], pb[2]), nrow = 2, ncol = 2, byrow = TRUE)
 
 K1 <- HMMoce:::gausskern.pg(sizes[1], sigmas[1], muadv = muadvs[1])
