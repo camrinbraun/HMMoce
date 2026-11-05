@@ -7,7 +7,7 @@
 #' @param upper.bounds vector of upper bounds of pars.init
 #' @param g grid from \code{\link{setup.grid}}
 #' @param L is likelihood array output from \code{make.L}
-#' @param alg.opt character indicating which optimization algorithm to use. Options are "optim", "nlminb", "ga", "ga_optim". 
+#' @param alg.opt character indicating which optimization algorithm to use. Options are "optim", "nlminb", "ga", "ga_optim", "rtmb", "fast". 
 #' @param reformat logical indicating whether to reformat and thus standardize output of the optimization algorithms
 #' @param write.results optional. logical indicating whether to write results with \code{saveRDS}.
 #' @param hessian optional. logical indicating whether to compute hessian matrix for estimate of parameter standard deviation. Note: usually slows down the computations significantly. Default is FALSE.
@@ -192,5 +192,160 @@ opt.params <- function(pars.init, lower.bounds, upper.bounds, g, L, alg.opt = 'o
     
   }
   
+  if (alg.opt %in% c("rtmb", "fast")) {
+    t0 <- Sys.time()
+    T_steps <- dim(L)[1]
+    n_lon   <- dim(L)[2]
+    n_lat   <- dim(L)[3]
+    W       <- ceiling(max(upper.bounds[1:min(2, length(upper.bounds))]) * 2)
+    k_seq   <- (-W):W
+    k_sq    <- k_seq^2
+
+    d_lon <- outer(seq_len(n_lon), seq_len(n_lon), "-")
+    m_lon <- (abs(d_lon) <= W) * 1.0
+    d_lon_sq <- (d_lon^2) * m_lon
+
+    d_lat <- outer(seq_len(n_lat), seq_len(n_lat), "-")
+    m_lat <- (abs(d_lat) <= W) * 1.0
+    d_lat_sq <- (d_lat^2) * m_lat
+
+    has_active_L <- apply(L, 1, sum, na.rm = TRUE) > 1e-6
+
+    eval_sep_nll <- function(sigmas, pb = NULL) {
+      z1  <- sum(exp(-0.5 * k_sq / (sigmas[1]^2)))
+      Kx1 <- (exp(-0.5 * d_lon_sq / (sigmas[1]^2)) * m_lon) / z1
+      Ky1 <- (exp(-0.5 * d_lat_sq / (sigmas[1]^2)) * m_lat) / z1
+
+      if (!is.null(pb)) {
+        z2  <- sum(exp(-0.5 * k_sq / (sigmas[2]^2)))
+        Kx2 <- (exp(-0.5 * d_lon_sq / (sigmas[2]^2)) * m_lon) / z2
+        Ky2 <- (exp(-0.5 * d_lat_sq / (sigmas[2]^2)) * m_lat) / z2
+        P11 <- pb[1]; P12 <- 1 - pb[1]; P21 <- 1 - pb[2]; P22 <- pb[2]
+      }
+
+      phi1 <- L[1, , ]
+      if (!is.null(pb)) phi2 <- L[1, , ] * 0
+      nll <- 0
+
+      for (t in 2:T_steps) {
+        q1 <- Kx1 %*% phi1 %*% Ky1
+        if (is.null(pb)) {
+          pred1 <- q1
+          post1 <- if (has_active_L[t]) pred1 * L[t, , ] else pred1
+          psi_t <- sum(post1) + 1e-15
+          nll   <- nll - log(psi_t)
+          phi1  <- post1 / psi_t
+        } else {
+          q2    <- Kx2 %*% phi2 %*% Ky2
+          pred1 <- P11 * q1 + P21 * q2
+          pred2 <- P12 * q1 + P22 * q2
+          if (has_active_L[t]) {
+            post1 <- pred1 * L[t, , ]
+            post2 <- pred2 * L[t, , ]
+          } else {
+            post1 <- pred1
+            post2 <- pred2
+          }
+          psi_t <- sum(post1) + sum(post2) + 1e-15
+          nll   <- nll - log(psi_t)
+          phi1  <- post1 / psi_t
+          phi2  <- post2 / psi_t
+        }
+      }
+      nll
+    }
+
+    use_rtmb <- (alg.opt == "rtmb") && requireNamespace("RTMB", quietly = TRUE)
+    if (alg.opt == "rtmb" && !use_rtmb) {
+      message("Package 'RTMB' not installed; using fast separable BLAS + nlminb fallback.")
+    }
+
+    opt <- NULL
+    par_out <- NULL
+
+    if (use_rtmb) {
+      rtmb_try <- tryCatch({
+        old_tc <- RTMB::TapeConfig(matmul = "atomic")
+        on.exit(do.call(RTMB::TapeConfig, as.list(old_tc)), add = TRUE)
+
+        if (length(pars.init) == 4) {
+          ad_fn <- function(parms) {
+            sigmas <- exp(parms$log_sigmas)
+            pb     <- 1 / (1 + exp(-parms$logit_pb))
+            eval_sep_nll(sigmas, pb)
+          }
+          obj <- RTMB::MakeADFun(
+            ad_fn,
+            parameters = list(
+              log_sigmas = log(pars.init[1:2]),
+              logit_pb   = stats::qlogis(pars.init[3:4])
+            ),
+            silent = TRUE
+          )
+          opt <- stats::nlminb(
+            obj$par, obj$fn, obj$gr,
+            lower = c(log(lower.bounds[1:2]), stats::qlogis(lower.bounds[3:4])),
+            upper = c(log(upper.bounds[1:2]), stats::qlogis(upper.bounds[3:4])),
+            control = list(iter.max = max_iter)
+          )
+          par_out <- c(exp(opt$par[1:2]), stats::plogis(opt$par[3:4]))
+        } else {
+          ad_fn <- function(parms) {
+            sigmas <- exp(parms$log_sigmas)
+            eval_sep_nll(sigmas, NULL)
+          }
+          obj <- RTMB::MakeADFun(
+            ad_fn,
+            parameters = list(log_sigmas = log(pars.init[1])),
+            silent = TRUE
+          )
+          opt <- stats::nlminb(
+            obj$par, obj$fn, obj$gr,
+            lower = log(lower.bounds[1]),
+            upper = log(upper.bounds[1]),
+            control = list(iter.max = max_iter)
+          )
+          par_out <- exp(opt$par[1])
+        }
+        list(opt = opt, par_out = par_out)
+      }, error = function(e) {
+        message("RTMB tape failed (", e$message, "); falling back to fast separable BLAS + nlminb.")
+        NULL
+      })
+      if (!is.null(rtmb_try)) {
+        opt     <- rtmb_try$opt
+        par_out <- rtmb_try$par_out
+      }
+    }
+
+    if (is.null(opt)) {
+      obj_fn <- function(p) {
+        if (length(p) == 4) eval_sep_nll(p[1:2], p[3:4]) else eval_sep_nll(p[1], NULL)
+      }
+      opt <- stats::nlminb(
+        start = pars.init,
+        objective = obj_fn,
+        lower = lower.bounds,
+        upper = upper.bounds,
+        control = list(iter.max = max_iter)
+      )
+      par_out <- as.numeric(opt$par)
+    }
+
+    t1 <- Sys.time()
+    print(t1 - t0)
+    res <- if (reformat) {
+      list(
+        par = as.numeric(par_out),
+        value = opt$objective,
+        convergence = opt$convergence,
+        message = opt$message
+      )
+    } else {
+      opt
+    }
+    if (write.results) saveRDS(res, file = filename)
+  }
+
   return(res)
 }
