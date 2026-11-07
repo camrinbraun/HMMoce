@@ -509,7 +509,7 @@ if (sizes[2] %% 2 == 0) sizes[2] <- sizes[2] + 1
 muadvs <- c(0, 0)
 
 # pb     <- c(0.8,.9)
-pb = sigmas <- fit$par[3:4]
+pb     <- fit$par[3:4]
 P      <- matrix(c(pb[1], 1 - pb[1], 1 - pb[2], pb[2]), nrow = 2, ncol = 2, byrow = TRUE)
 
 K1 <- HMMoce:::gausskern.pg(sizes[1], sigmas[1], muadv = muadvs[1])
