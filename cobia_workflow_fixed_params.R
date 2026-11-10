@@ -421,7 +421,46 @@ if (length(glorys_files) > 0 && !is.null(pdt) && nrow(pdt) > 0) {
   L.ohc <- NULL
 }
 
-# 6.3.2 GLORYS SST Likelihood
+# 6.3.2 GLORYS Level-Specific 3D Profile Likelihood (HYCOM-style 3D PDT)
+if (length(glorys_files) > 0 && !is.null(pdt) && nrow(pdt) > 0) {
+  glorys_prof_rds <- file.path(out_dir, "L.glorys.rds")
+  if (!file.exists(glorys_prof_rds)) {
+    message("Calculating GLORYS level-specific 3D profile likelihood...")
+    L.glorys <- calc.glorys.par(
+      pdt = pdt,
+      filename = "cmems_mod_glo_phy_my_0.083deg_P1D-m",
+      glorys.dir = glorys.dir,
+      dateVec = dateVec,
+      use.se = TRUE
+    )
+    saveRDS(L.glorys, glorys_prof_rds)
+  } else {
+    message("Loading cached L.glorys: ", glorys_prof_rds)
+    L.glorys <- readRDS(glorys_prof_rds)
+  }
+} else {
+  L.glorys <- NULL
+}
+
+# 6.3.3 Combined PDT Likelihood (L.glorys + L.ohc via make.L.pdt)
+if (!is.null(L.glorys) && !is.null(L.ohc)) {
+  pdt_rds <- file.path(out_dir, "L.pdt.rds")
+  if (!file.exists(pdt_rds)) {
+    message("Combining L.glorys and L.ohc into L.pdt via make.L.pdt...")
+    pdt_ras <- list(glorys = L.glorys, ohc = L.ohc)
+    pdt_res_idx <- which.min(lapply(pdt_ras, function(x) raster::res(x)[1]))
+    pdt_res <- resample.grid(pdt_ras, pdt_ras[[pdt_res_idx]])
+    L.pdt <- make.L.pdt(pdt_res$L.rasters, dateVec = dateVec)
+    saveRDS(L.pdt, pdt_rds)
+  } else {
+    message("Loading cached L.pdt: ", pdt_rds)
+    L.pdt <- readRDS(pdt_rds)
+  }
+} else {
+  L.pdt <- NULL
+}
+
+# 6.3.4 GLORYS SST Likelihood
 if (length(glorys_files) > 0 && !is.null(tag.sst) && nrow(tag.sst) > 0) {
   sst_rds <- file.path(out_dir, "L.sst.glorys.rds")
   if (!file.exists(sst_rds)) {
@@ -442,8 +481,8 @@ if (length(glorys_files) > 0 && !is.null(tag.sst) && nrow(tag.sst) > 0) {
   L.sst <- NULL
 }
 
-## 6.4 Combine Available Likelihood Rasters (Light + OHC only) -----------------
-L.rasters <- list(light = L.light, ohc = L.ohc, bathy = L.bathy, sst = L.sst)
+## 6.4 Combine Available Likelihood Rasters ------------------------------------
+L.rasters <- list(light = L.light, ohc = L.ohc, glorys = L.glorys, pdt = L.pdt, bathy = L.bathy, sst = L.sst)
 L.rasters <- L.rasters[!sapply(L.rasters, is.null)]
 message("Combining observation likelihoods: ", paste(names(L.rasters), collapse = ", "))
 
@@ -455,7 +494,7 @@ L.res <- resample.grid(L.rasters, L.rasters[[resamp.idx]])
 maxDepth_vec <- rep(0, length(dateVec))
 
 # weight of individual likelihoods
-weights <- c(light = 2.0, sst = 1.0, ohc = 1.0, bathy = 1.0)
+weights <- c(light = 1.0, sst = 1.0, ohc = 1.0, glorys = 1.0, pdt = 1.0, bathy = 1.0)
 ras_weighted <- Map(function(r, nm) r * weights[[nm]], L.res$L.rasters, names(L.res$L.rasters))
 
 # Form master observation likelihood array
@@ -509,7 +548,7 @@ if (sizes[2] %% 2 == 0) sizes[2] <- sizes[2] + 1
 muadvs <- c(0, 0)
 
 # pb     <- c(0.8,.9)
-pb = sigmas <- fit$par[3:4]
+pb     <- fit$par[3:4]
 P      <- matrix(c(pb[1], 1 - pb[1], 1 - pb[2], pb[2]), nrow = 2, ncol = 2, byrow = TRUE)
 
 K1 <- HMMoce:::gausskern.pg(sizes[1], sigmas[1], muadv = muadvs[1])
@@ -521,12 +560,16 @@ m_states <- 2
 
 # 7.2 Define Likelihood Combinations to Test
 combos <- list(
-  ohc_light = c("ohc", "light"),
-  ohc       = c("ohc"),
-  light     = c("light"),
-  light_bathy = c("light","bathy"),
-  light_bathy_sst = c("light","bathy", "sst"),
-  light_ohc_bathy = c("light","bathy", "ohc")
+  ohc_light       = c("ohc", "light"),
+  glorys_light    = c("glorys", "light"),
+  pdt_light       = c("pdt", "light"),
+  ohc             = c("ohc"),
+  glorys          = c("glorys"),
+  light           = c("light"),
+  light_bathy     = c("light", "bathy"),
+  light_bathy_sst = c("light", "bathy", "sst"),
+  light_ohc_bathy = c("light", "bathy", "ohc"),
+  light_pdt_bathy = c("light", "bathy", "pdt")
 )
 combos <- combos[sapply(combos, function(x) all(x %in% names(L.res$L.rasters)))]
 

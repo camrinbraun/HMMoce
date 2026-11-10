@@ -108,31 +108,26 @@ calc.glorys <- function(pdt, filename, glorys.dir, focalDim = 9, dateVec, depthV
     if (nrow(pdt.i) < 3) next
     
    # make sure we get the filename right
-   glorys_file <- paste(glorys.dir, filename, '_', format(dateVec[i], '%Y-%m-%d'), '.nc', sep='')
-   if (!file.exists(glorys_file)) glorys_file <- paste(glorys.dir, filename, '_', format(dateVec[i], '%Y%m%d'), '.nc', sep='')
+   glorys_file <- file.path(glorys.dir, paste0(filename, '_', format(dateVec[i], '%Y-%m-%d'), '.nc'))
+   if (!file.exists(glorys_file)) glorys_file <- file.path(glorys.dir, paste0(filename, '_', format(dateVec[i], '%Y%m%d'), '.nc'))
    if (!file.exists(glorys_file)){
      glorys_flist <- list.files(glorys.dir)
-     glorys_file <- paste(glorys.dir, glorys_flist[grep(format(dateVec[i], '%Y%m%d'), glorys_flist)], sep='')
+     m <- grep(format(dateVec[i], '%Y%m%d'), glorys_flist)
+     if (length(m) > 0) glorys_file <- file.path(glorys.dir, glorys_flist[m[1]])
    }
+   if (!file.exists(glorys_file)) next
    # open day's glorys data
    br <- raster::brick(glorys_file)
-   # open day's glorys data
-    #br <- raster::brick(paste(glorys.dir, filename, '_', format(dateVec[i], '%Y%m%d'), '.grd', sep=''))
-    #dat <- RNetCDF::var.get.nc(nc, temp.idx) * scale + offset
-    #dat <- RNetCDF::var.get.nc(nc, 'variable') #* scale + offset
-    dat <- raster::as.array(br)
+   dat <- raster::as.array(br)
     
     #extracts depth from tag data for day i
     y <- pdt.i$depth[!is.na(pdt.i$depth)] 
     y[y < 0] <- 0
     
-    #extract temperature from tag data for day i
-    #x <- pdt.i$useTemp[!is.na(pdt.i$depth)]  
-    
     # use the which.min
     depIdx = unique(apply(as.data.frame(pdt.i$depth), 1, FUN = function(x) which.min((x - depth) ^ 2)))
+    if (length(depIdx) < 2) next
     glorysDep <- depth[depIdx]
-    
     
     # make predictions based on the regression model earlier for the temperature at standard WOA depth levels for low and high temperature at that depth
     suppressWarnings(
@@ -143,22 +138,24 @@ calc.glorys <- function(pdt, filename, glorys.dir, focalDim = 9, dateVec, depthV
     )
     n = length(glorysDep)
     
-    #suppressWarnings(
     pred.low = stats::predict(fit.low, newdata = glorysDep, se = TRUE, get.data = TRUE)
-    #suppressWarnings(
     pred.high = stats::predict(fit.high, newdata = glorysDep, se = TRUE, get.data = TRUE)
     
-    if (use.se){
-      # data frame for next step
+    if (use.se && all(is.finite(pred.low$se.fit)) && all(is.finite(pred.high$se.fit))){
       df = data.frame(low = pred.low$fit - pred.low$se.fit * sqrt(n),
                       high = pred.high$fit + pred.high$se.fit * sqrt(n),
                       depth = glorysDep)
+      if (any(!is.finite(df$low)) || any(!is.finite(df$high)) || min(df$low, na.rm = TRUE) < -2) {
+        df = data.frame(low = pred.low$fit,
+                        high = pred.high$fit,
+                        depth = glorysDep)
+      }
     } else{
-      # data frame for next step
-      df = data.frame(low = pred.low$fit,# - pred.low$se.fit * sqrt(n),
-                      high = pred.high$fit,# + pred.high$se.fit * sqrt(n),
+      df = data.frame(low = pred.low$fit,
+                      high = pred.high$fit,
                       depth = glorysDep)
     }
+    df$high <- pmax(df$high, df$low + 0.25)
     
     # calculate sd using Le Bris neighbor method and focal()
     sd.i = array(NA, dim = c(dim(dat)[1:2], length(depIdx)))
@@ -176,43 +173,36 @@ calc.glorys <- function(pdt, filename, glorys.dir, focalDim = 9, dateVec, depthV
     for (b in 1:length(depIdx)) {
       #calculate the likelihood for each depth level, b
       lik.try <- try(likint3(dat[,,depIdx[b]], sd.i[,,b], df[b, 1], df[b, 2]), TRUE)
-      class.try <- class(lik.try)
       
-      if(!any(which(lik.try > 0))) class.try <- 'try-error'
-      
-      if(class.try[1] == 'try-error' & use.se == FALSE){
-        df[b,1] <- pred.low$fit[b] - pred.low$se.fit[b] * sqrt(n)
-        df[b,2] <- pred.high$fit[b] - pred.high$se.fit[b] * sqrt(n)
-        
-        lik.try <- try(likint3(dat[,,depIdx[b]], sd.i[,,b], df[b, 1], df[b, 2]), TRUE)
-        class.try <- class(lik.try)
-        
-        if(!any(which(lik.try > 0))) class.try <- 'try-error'
-        
-        if (class.try[1] == 'try-error'){
+      if (inherits(lik.try, 'try-error') || !any(which(lik.try > 0))){
+        low_b  <- pred.low$fit[b]
+        high_b <- max(pred.high$fit[b], low_b + 0.25)
+        if (is.finite(pred.low$se.fit[b]) && is.finite(pred.high$se.fit[b])) {
+          low_b  <- max(-2, pred.low$fit[b] - pred.low$se.fit[b] * sqrt(n))
+          high_b <- max(low_b + 0.25, pred.high$fit[b] + pred.high$se.fit[b] * sqrt(n))
+        }
+        lik.try <- try(likint3(dat[,,depIdx[b]], sd.i[,,b], low_b, high_b), TRUE)
+        if (inherits(lik.try, 'try-error') || !any(which(lik.try > 0))){
           lik.try <- dat[,,depIdx[b]] * 0
           warning(paste('Warning: likint3 failed after trying with and without SE prediction of depth-temp profiles. This is most likely a divergent integral for ', dateVec[i], '...', sep=''))
         }
-        
-      } else if (class.try[1] == 'try-error' & use.se == TRUE){
-        lik.try <- dat[,,depIdx[b]] * 0
-        warning(paste('Warning: likint3 failed after trying with and without SE prediction of depth-temp profiles. This is most likely a divergent integral for ', dateVec[i], '...', sep=''))
       }
       
       lik.pdt[,,b] <- lik.try
-      print(class(lik.try))
-      print(b)
     }
     
     lik.pdt0 <- lik.pdt
     lik.pdt0[is.na(lik.pdt0)] <- 0
-    use.idx <- unique(which(lik.pdt0 != 0, arr.ind=TRUE)[,3])
+    use.idx <- unique(which(lik.pdt0 > 0, arr.ind=TRUE)[,3])
+    
+    if (length(use.idx) == 0) next
     
     # multiply likelihood across depth levels for each day
-    lik.pdt <- apply(lik.pdt[,,use.idx], 1:2, FUN=function(x) prod(x, na.rm=FALSE))
-    
-    #lik.pdt
-    L.glorys[,,i] = t(lik.pdt / max(lik.pdt, na.rm=TRUE))
+    lik.pdt <- apply(lik.pdt[,,use.idx, drop = FALSE], 1:2, FUN=function(x) prod(x, na.rm=FALSE))
+    m <- suppressWarnings(max(lik.pdt, na.rm = TRUE))
+    if (is.finite(m) && m > 0) {
+      L.glorys[,,i] <- t(lik.pdt / m)
+    }
     
   }
   
