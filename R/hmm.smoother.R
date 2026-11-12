@@ -41,6 +41,54 @@ hmm.smoother <- function(f, L, K, P){
   
 }
 
+build_sep_kernel_ops <- function(K_mat, nx, ny) {
+  K_mat <- as.matrix(K_mat)
+  sv <- svd(K_mat)
+  r_use <- if (length(sv$d) == 1L || sv$d[2] < 1e-4 * sv$d[1]) {
+    1L
+  } else if (length(sv$d) == 2L || sv$d[3] < 1e-3 * sv$d[1]) {
+    2L
+  } else {
+    0L
+  }
+  if (r_use == 0L) return(NULL)
+  build_toeplitz_1d <- function(n, kvec) {
+    lk <- length(kvec)
+    ctr <- floor(lk / 2) + 1L
+    idx <- outer(seq_len(n), seq_len(n), "-") + ctr
+    valid <- idx >= 1L & idx <= lk
+    Tmat <- matrix(0, n, n)
+    Tmat[valid] <- kvec[idx[valid]]
+    Tmat
+  }
+  ops_r <- vector("list", r_use)
+  for (rk in seq_len(r_use)) {
+    u_vec <- sqrt(sv$d[rk]) * sv$u[, rk]
+    v_vec <- sqrt(sv$d[rk]) * sv$v[, rk]
+    ops_r[[rk]] <- list(
+      Tv = build_toeplitz_1d(nx, v_vec),
+      Tu_t = t(build_toeplitz_1d(ny, u_vec))
+    )
+  }
+  ops_r
+}
+
+apply_sep_kernel <- function(M, ops_r, K_cimg = NULL) {
+  if (!is.null(ops_r)) {
+    res <- ops_r[[1]]$Tv %*% M %*% ops_r[[1]]$Tu_t
+    if (length(ops_r) > 1L) {
+      for (rk in 2:length(ops_r)) {
+        res <- res + (ops_r[[rk]]$Tv %*% M %*% ops_r[[rk]]$Tu_t)
+      }
+    }
+    res[res < 0] <- 0
+    res
+  } else {
+    p_img <- imager::as.cimg(t(M))
+    t(as.matrix(imager::convolve(p_img, K_cimg)))
+  }
+}
+
 hmm.smoother1 <- function(f, L, K, P=NULL){
   ## Smoothing the filtered estimates
   ## The equations for smoothing are presented in Pedersen et al. 2011, Oikos, Appendix
@@ -49,9 +97,10 @@ hmm.smoother1 <- function(f, L, K, P=NULL){
   row <- dim(f$phi)[3]
   col <- dim(f$phi)[4]
   
+  sep_ops <- vector("list", m)
   for (ii in 1:m){
-    # convert movement kernels from matrix to cimg for convolution
-    K[[ii]] <- imager::as.cimg(K[[ii]])
+    sep_ops[[ii]] <- build_sep_kernel_ops(K[[ii]], row, col)
+    if (is.null(sep_ops[[ii]])) K[[ii]] <- imager::as.cimg(K[[ii]])
   }
 
   smooth <- array(0, dim = dim(f$phi))
@@ -64,7 +113,7 @@ hmm.smoother1 <- function(f, L, K, P=NULL){
   }
   
   ## create empty lists for upcoming vars
-  p <- list(); Rp <- list(); post <- list()
+  Rp <- vector("list", m); post <- vector("list", m)
   
   for(t in T:2){
     
@@ -73,11 +122,8 @@ hmm.smoother1 <- function(f, L, K, P=NULL){
     if (m == 1) RAT <- abind::abind(RAT, RAT, along = 0)[1,,, drop=F]
 
     for (ii in 1:m){
-      
       # convolve today's smoother prediction with movement kernel
-      p[[ii]] = imager::as.cimg(t(RAT[ii,,]))
-      Rp[[ii]] <- t(as.matrix(imager::convolve(p[[ii]], K[[ii]])))
-          
+      Rp[[ii]] <- apply_sep_kernel(RAT[ii,,], sep_ops[[ii]], K[[ii]])
     }
 
     # multiply by transition probability 
@@ -122,9 +168,10 @@ hmm.smoother2 <- function(f, K1, K2, L, P){
   row <- dim(f$phi)[3]
   col <- dim(f$phi)[4]
   
-  # convert movement kernel from matrix to cimg for convolution
-  K1 <- imager::as.cimg(K1)
-  K2 <- imager::as.cimg(K2)
+  sep_ops1 <- build_sep_kernel_ops(K1, row, col)
+  sep_ops2 <- build_sep_kernel_ops(K2, row, col)
+  if (is.null(sep_ops1)) K1 <- imager::as.cimg(K1)
+  if (is.null(sep_ops2)) K2 <- imager::as.cimg(K2)
   
   smooth <- array(0, dim = dim(f$phi))
   sum_phi_T <- sum(f$phi[,T,,], na.rm = TRUE)
@@ -136,18 +183,12 @@ hmm.smoother2 <- function(f, K1, K2, L, P){
     smooth[2,T,,] <- L[T,,] / (2 * sum_LT)
   }
   
-  #smooth <- f$phi  #default; fill in as the prediction step.
-  
   for(t in T:2){
     RAT <- smooth[,t,,] / pmax(f$pred[,t,,], 1e-300)
     
     # convolve today's smoother prediction with movement kernel
-    p1 = imager::as.cimg(t(RAT[1,,]))
-    Rp1 <- imager::convolve(p1, K1)
-    p2 = imager::as.cimg(t(RAT[2,,]))
-    Rp2 <- imager::convolve(p2, K2)
-    Rp1 = t(as.matrix(Rp1))
-    Rp2 = t(as.matrix(Rp2))
+    Rp1 <- apply_sep_kernel(RAT[1,,], sep_ops1, K1)
+    Rp2 <- apply_sep_kernel(RAT[2,,], sep_ops2, K2)
     
     post1 <- matrix(P[1,1] * Rp1 + P[1,2] * Rp2, row, col) * f$phi[1,t-1,,]
     post2 <- matrix(P[2,1] * Rp1 + P[2,2] * Rp2, row, col) * f$phi[2,t-1,,]

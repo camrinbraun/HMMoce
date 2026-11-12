@@ -26,7 +26,7 @@ Imports:
     imager,
     locfit,
     lubridate,
-    raster,
+    terra,
     RColorBrewer,
     sf,
     RNetCDF,

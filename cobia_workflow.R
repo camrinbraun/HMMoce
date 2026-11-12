@@ -7,9 +7,18 @@ library(readxl)
 library(dplyr)
 library(lubridate)
 library(ggplot2)
+library(terra)
 library(tags2etuff)
 # source("c:/Users/benjamin.galuardi/Documents/GitHub/HMMoce/microwave_to_etuff.R")
 devtools::load_all(".")
+
+save_rast_rds <- function(r, file) {
+  saveRDS(if (inherits(r, "SpatRaster")) terra::wrap(r) else r, file)
+}
+load_rast_rds <- function(file) {
+  x <- readRDS(file)
+  if (inherits(x, "PackedSpatRaster")) terra::unwrap(x) else if (inherits(x, "SpatRaster")) x else terra::rast(x)
+}
 
 gdrive_root_id <- "1jN4NVXfNcxVqIPxVvl3k3e3e4W3J5HgU" # "Cobia Shared Files"
 local_gdrive   <- "G:/.shortcut-targets-by-id/1jN4NVXfNcxVqIPxVvl3k3e3e4W3J5HgU/Cobia Shared Files"
@@ -280,7 +289,7 @@ if (!dir.exists(bathy.dir)) dir.create(bathy.dir, recursive = TRUE)
 bathy_file <- file.path(bathy.dir, "bathy.nc")
 if (file.exists(bathy_file)) {
   message("Loading cached bathymetry: ", bathy_file)
-  bathy <- raster::raster(bathy_file)
+  bathy <- terra::rast(bathy_file)
 } else {
   message("Fetching NOAA bathymetry raster for study area...")
   bathy <- tryCatch(
@@ -305,10 +314,10 @@ if (!is.null(lightloc) && nrow(lightloc) > 0) {
       errEll = FALSE,
       lon_only = TRUE
     )
-    saveRDS(L.light, light_rds)
+    save_rast_rds(L.light, light_rds)
   } else {
     message("Loading cached L.light: ", light_rds)
-    L.light <- readRDS(light_rds)
+    L.light <- load_rast_rds(light_rds)
   }
 } else {
   L.light <- NULL
@@ -319,7 +328,7 @@ if (!is.null(bathy) && !is.null(mmd) && nrow(mmd) > 0) {
   bathy_rds <- file.path(out_dir, "L.bathy.rds")
   if (!file.exists(bathy_rds)) {
     message("Calculating bathymetry likelihood (L.bathy)...")
-    bathy_crop <- raster::crop(bathy, raster::extent(sp.lim$lonmin, sp.lim$lonmax, sp.lim$latmin, sp.lim$latmax))
+    bathy_crop <- terra::crop(bathy, terra::ext(sp.lim$lonmin, sp.lim$lonmax, sp.lim$latmin, sp.lim$latmax))
     L.bathy <- calc.bathy(
       mmd,
       bathy_crop,
@@ -328,10 +337,10 @@ if (!is.null(bathy) && !is.null(mmd) && nrow(mmd) > 0) {
       sens.err = 5,
       lik.type = "max"
     )
-    saveRDS(L.bathy, bathy_rds)
+    save_rast_rds(L.bathy, bathy_rds)
   } else {
     message("Loading cached L.bathy: ", bathy_rds)
-    L.bathy <- readRDS(bathy_rds)
+    L.bathy <- load_rast_rds(bathy_rds)
   }
 } else {
   L.bathy <- NULL
@@ -412,10 +421,10 @@ if (length(glorys_files) > 0 && !is.null(pdt) && nrow(pdt) > 0) {
       ohc.dir = glorys.dir,
       dateVec = dateVec
     )
-    saveRDS(L.ohc, ohc_rds)
+    save_rast_rds(L.ohc, ohc_rds)
   } else {
     message("Loading cached L.ohc: ", ohc_rds)
-    L.ohc <- readRDS(ohc_rds)
+    L.ohc <- load_rast_rds(ohc_rds)
   }
 } else {
   L.ohc <- NULL
@@ -433,10 +442,10 @@ if (length(glorys_files) > 0 && !is.null(tag.sst) && nrow(tag.sst) > 0) {
       dateVec = dateVec,
       sens.err = 1
     )
-    saveRDS(L.sst, sst_rds)
+    save_rast_rds(L.sst, sst_rds)
   } else {
     message("Loading cached L.sst: ", sst_rds)
-    L.sst <- readRDS(sst_rds)
+    L.sst <- load_rast_rds(sst_rds)
   }
 } else {
   L.sst <- NULL
@@ -448,7 +457,7 @@ L.rasters <- L.rasters[!sapply(L.rasters, is.null)]
 message("Combining observation likelihoods: ", paste(names(L.rasters), collapse = ", "))
 
 # Resample to common finest grid resolution
-resamp.idx <- which.min(lapply(L.rasters, function(x) raster::res(x)[1]))
+resamp.idx <- which.min(lapply(L.rasters, function(x) terra::res(x)[1]))
 L.res <- resample.grid(L.rasters, L.rasters[[resamp.idx]])
 
 # Prepare daily maxDepth vector aligned with dateVec (zero-padded)
@@ -591,11 +600,11 @@ tr <- calc.track(s, g = L.res$g, dateVec = dateVec, iniloc = iniloc, method = "m
   
   # Endpoint error (distance to popoff in km)
   last_idx <- nrow(tr)
-  end_err_km <- raster::pointDistance(
-    c(tr$lon[last_idx], tr$lat[last_idx]),
-    c(iniloc$lon[2], iniloc$lat[2]),
+  end_err_km <- terra::distance(
+    matrix(c(tr$lon[last_idx], tr$lat[last_idx]), ncol = 2),
+    matrix(c(iniloc$lon[2], iniloc$lat[2]), ncol = 2),
     lonlat = TRUE
-  ) / 1000
+  )[1] / 1000
   
   comp_rows[[m_name]] <- data.frame(
     model = m_name,

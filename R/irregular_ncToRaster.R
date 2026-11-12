@@ -27,13 +27,9 @@ irregular_ncToRaster <- function(fname, varid){
   
   bathy = list(x = lon, y = lat, data = bdata)
   
-  #if(raster){
-    crs <- "+proj=longlat +datum=WGS84 +ellps=WGS84"
-    ex <- raster::extent(bathy)
-    bathy <- raster::raster(t(bathy$data), xmn = ex[1], xmx = ex[2], ymn = ex[3], ymx = ex[4], crs)
-    
-    if (flip) bathy <- raster::flip(bathy, 'y')
-  #}
+  crs <- "+proj=longlat +datum=WGS84 +ellps=WGS84"
+  bathy <- terra::rast(t(bathy$data), extent = terra::ext(min(lon), max(lon), min(lat), max(lat)), crs = crs)
+  if (flip) bathy <- terra::flip(bathy, direction = "vertical")
   
   bathy
   

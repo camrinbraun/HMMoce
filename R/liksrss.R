@@ -10,27 +10,15 @@
 #' @return an array of SRSS-based likelihoods
 
 liksrss <- function(obs, srss, srsd){
-
   if(is.na(obs)){
-      
-    srssout = srss
-    raster::values(srssout) = 0
-    
+    srssout <- srss * 0
   } else{
-    # midT = (maxT + minT) / 2
-    # Tsd = (maxT - minT) / 4
-    #d = obs-srss
-    # widx = w >= minT & w <= maxT & !is.na(w)
-    sdf = data.frame(sr = as.vector(srss), srsd = as.vector(srsd))
-    sdf$srsd[is.na(sdf$srsd)] = 0
-    # wint = apply(wdf, 1, function(x) pracma::integral(dnorm, minT, maxT, mean = x[1], sd = x[2]))
-    # wint = apply(wdf, 1, function(x) integrate(dnorm, x[1]-x[2], x[1]+x[2], mean = midT, sd = Tsd * 2)$value) 
-    res = stats::dnorm(obs, sdf$sr, sdf$srsd)
-    srssout = srss
-    raster::values(srssout) = res
-    # w = w * 0
-    # w[widx] = wint
-    # w
+    sr_v <- as.vector(terra::values(srss))
+    sd_v <- as.vector(terra::values(srsd))
+    sd_v[is.na(sd_v)] <- 0
+    res <- stats::dnorm(obs, sr_v, sd_v)
+    srssout <- srss
+    terra::values(srssout) <- res
   }
   srssout
 }  

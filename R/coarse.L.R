@@ -7,32 +7,22 @@
 #' @export
 
 coarse.L <- function(L, ras.list, aggregate_fact = NULL){
+  r <- if (is.list(ras.list)) ras.list[[1]] else ras.list
+  if (!inherits(r, "SpatRaster")) r <- terra::rast(r)
   
-  ## get example grid
-  if (class(ras.list) == 'list') r <- ras.list[[1]]
-  if (class(ras.list) == "RasterBrick" | class(ras.list) == "RasterStack" | class(ras.list) == "RasterLayer") r <- ras.list
+  ## convert L (T, ncol, nrow South-up) back to North-up SpatRaster (nrow, ncol, T)
+  L_arr <- aperm(L, c(3, 2, 1))
+  L_arr <- L_arr[dim(L_arr)[1]:1, , , drop = FALSE]
+  L.mle <- terra::rast(L_arr, extent = terra::ext(r), crs = terra::crs(r))
   
-  ## convert L back to raster
-  L.mle <- aperm(L, c(3,2,1))
-  lon.agg <- seq(raster::extent(r)[1], raster::extent(r)[2], length.out=dim(r)[2])
-  lat.agg <- seq(raster::extent(r)[3], raster::extent(r)[4], length.out=dim(r)[1])
-  list.mle <- list(x = lon.agg, y = lat.agg, z = L.mle)
-  ex <- raster::extent(list.mle)
-  crs <- "+proj=longlat +datum=WGS84 +ellps=WGS84"
-  L.mle <- raster::brick(list.mle$z, xmn=ex[1], xmx=ex[2], ymn=ex[3], ymx=ex[4], transpose=F, crs)
-  L.mle <- raster::flip(L.mle, direction = 'y')
-  
-  ## coarsen / aggregate
   if (is.null(aggregate_fact)) aggregate_fact <- 5
-  
-  L.mle <- raster::aggregate(L.mle, fact = aggregate_fact, fun = 'max')
+  L.mle <- terra::aggregate(L.mle, fact = aggregate_fact, fun = "max", na.rm = TRUE)
   g.mle <- setup.grid.raster(L.mle)
   
-  ## output array for parameter optim
-  L.mle <- aperm(raster::as.array(raster::flip(L.mle, direction = 'y')), c(3, 2, 1))
+  arr_mle <- terra::as.array(L.mle)
+  L.mle <- aperm(arr_mle[dim(arr_mle)[1]:1, , , drop = FALSE], c(3, 2, 1))
   
   return(list(L.mle = L.mle, g.mle = g.mle))
-
 }
 
 

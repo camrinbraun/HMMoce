@@ -151,15 +151,10 @@ calc.hycom <- function(pdt, filename, hycom.dir, focalDim = 9, dateVec, use.se =
                       depth = hycomDep)
     }
     
-    # calculate sd using Le Bris neighbor method and focal()
-    sd.i = array(NA, dim = c(dim(dat)[1:2], length(depIdx)))
-    
-    for(ii in 1:length(depIdx)){
-      r = raster::flip(raster::raster(t(dat[,,depIdx[ii]])), 2)
-      f1 = raster::focal(r, w = matrix(1, nrow = focalDim, ncol = focalDim), fun = function(x) stats::sd(x, na.rm = TRUE), pad = TRUE)
-      f1 = t(raster::as.matrix(raster::flip(f1, 2)))
-      sd.i[,,ii] = f1
-    }
+    # calculate sd using Le Bris neighbor method and terra::focal()
+    r_sub <- terra::flip(terra::rast(aperm(dat[,,depIdx, drop = FALSE], c(2, 1, 3))), direction = "vertical")
+    sd_sub <- terra::focal(r_sub, w = focalDim, fun = "sd", na.rm = TRUE)
+    sd.i <- aperm(terra::as.array(terra::flip(sd_sub, direction = "vertical")), c(2, 1, 3))
     
     # setup the likelihood array for each day. Will have length (dim[3]) = n depths
     lik.pdt = array(NA, dim = c(dim(dat)[1], dim(dat)[2], length(depIdx)))
@@ -210,9 +205,10 @@ calc.hycom <- function(pdt, filename, hycom.dir, focalDim = 9, dateVec, use.se =
   print(paste('Making final likelihood raster...'))
   
   crs <- "+proj=longlat +datum=WGS84 +ellps=WGS84"
-  L.hycom <- raster::brick(L.hycom, xmn=min(lon), xmx=max(lon), ymn=min(lat), ymx=max(lat), transpose=TRUE, crs)
+  L.hycom[is.na(L.hycom) | L.hycom < 0] <- 0
+  L.hycom <- terra::rast(aperm(L.hycom, c(2, 1, 3)), extent = terra::ext(min(lon), max(lon), min(lat), max(lat)), crs = crs)
   if (flip_y){
-    L.hycom <- raster::flip(L.hycom, direction = 'y')
+    L.hycom <- terra::flip(L.hycom, direction = "vertical")
     warning('Output raster is being flipped in the y. If this is not desired, use need_flip=FALSE.')
   }
   

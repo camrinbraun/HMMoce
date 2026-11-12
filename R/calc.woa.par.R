@@ -137,17 +137,10 @@ ans = foreach::foreach(i = 1:T) %dopar%{
   
   dat.i = wdat[, , , pdtMonth] #extract months climatology
   
-  # calculate sd using Le Bris neighbor method and focal()
-  # sd.i = array(NA, dim = c(dim(dat.i)[1:2], length(depth)))
-  
-  sd.i = array(NA, dim = c(dim(dat.i)[1:2], length(depIdx)))
-  
-  for(ii in 1:length(depIdx)){
-    r = raster::flip(raster::raster(t(dat.i[,,depIdx[ii]])), 2)
-    f1 = raster::focal(r, w = matrix(1, nrow = focalDim, ncol = focalDim), fun = function(x) stats::sd(x, na.rm = T))
-    f1 = t(raster::as.matrix(raster::flip(f1, 2)))
-    sd.i[,,ii] = f1
-  } 
+  # calculate sd using Le Bris neighbor method and terra::focal()
+  r_sub <- terra::flip(terra::rast(aperm(dat.i[,,depIdx, drop = FALSE], c(2, 1, 3))), direction = "vertical")
+  sd_sub <- terra::focal(r_sub, w = focalDim, fun = "sd", na.rm = TRUE)
+  sd.i <- aperm(terra::as.array(terra::flip(sd_sub, direction = "vertical")), c(2, 1, 3))
   
   # make index of dates for filling in lik.prof
   didx <- base::match(udates, dateVec)
@@ -208,8 +201,7 @@ for (i in didx) {
 print(paste('Making final likelihood raster...'))
 
 crs <- "+proj=longlat +datum=WGS84 +ellps=WGS84"
-L.ras <- raster::brick(L.prof, xmn = min(woa.data$lon), xmx = max(woa.data$lon), ymn = min(woa.data$lat), ymx = max(woa.data$lat), transpose = T, crs)
-L.ras <- raster::flip(L.ras, direction = 'y')
+L.ras <- terra::flip(terra::rast(aperm(L.prof, c(2, 1, 3)), extent = terra::ext(min(woa.data$lon), max(woa.data$lon), min(woa.data$lat), max(woa.data$lat)), crs = crs), direction = "vertical")
 
 t1 <- Sys.time()
 print(paste('WOA calculations took ', round(as.numeric(difftime(t1, t0, units='mins')), 2), 'minutes...'))

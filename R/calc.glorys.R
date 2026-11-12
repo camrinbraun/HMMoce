@@ -47,7 +47,7 @@ calc.glorys <- function(pdt, filename, glorys.dir, focalDim = 9, dateVec, depthV
   
   print(paste0('Generating profile likelihood for ', dateVec[1], ' through ', dateVec[length(dateVec)]))
   
-  # open nc and get the indices for the vars
+  # open template nc using terra to get grid dimensions and extent
   first_nc <- NULL
   for (d_idx in seq_along(dateVec)) {
     cand <- c(
@@ -61,18 +61,11 @@ calc.glorys <- function(pdt, filename, glorys.dir, focalDim = 9, dateVec, depthV
     }
   }
   if (is.null(first_nc)) first_nc <- dir(glorys.dir, pattern = "\\.nc$", full.names = TRUE)[1]
-  nc1 <- raster::brick(first_nc)
-  tfile <- paste0(tempfile(), '.nc')
-  raster::writeRaster(nc1, tfile)
-  nc1 =  RNetCDF::open.nc(tfile)
-  ncnames = NULL
-  nmax <- RNetCDF::file.inq.nc(nc1)$nvars - 1
-  for(ii in 0:nmax) ncnames[ii + 1] <- RNetCDF::var.inq.nc(nc1, ii)$name
-  #temp.idx <- grep('temp', ncnames, ignore.case=TRUE) - 1
-  lat.idx <- grep('lat', ncnames, ignore.case=TRUE) - 1
-  lon.idx <- grep('lon', ncnames, ignore.case=TRUE) - 1
-  #if (any(ncnames == 'z')) ncnames[which(ncnames %in% 'z')] <- 'depth'
-  #dep.idx <- grep('dep', ncnames, ignore.case=TRUE) - 1
+  r_tmpl   <- terra::rast(first_nc, lyrs = 1)
+  tmpl_nr  <- terra::nrow(r_tmpl)
+  tmpl_nc  <- terra::ncol(r_tmpl)
+  tmpl_ext <- as.vector(terra::ext(r_tmpl))
+  if (!any(tmpl_ext[1:2] < 180)) tmpl_ext[1:2] <- tmpl_ext[1:2] - 360
   
   ## better handling of depth
   if (is.null(depthVec)){
@@ -82,113 +75,66 @@ calc.glorys <- function(pdt, filename, glorys.dir, focalDim = 9, dateVec, depthV
                266.040314,  318.127411,  380.213013,  453.937714,  541.088928,  643.566772,  763.333130,  902.339294, 1062.439941,
                1245.291016, 1452.250977, 1684.284058, 1941.892944, 2225.077881, 2533.335938, 2865.702881, 3220.820068, 3597.031982,
                3992.483887, 4405.224121, 4833.291016, 5274.784180, 5727.916992)
-    
+  } else {
+    depth <- depthVec
   }
   
-  # get attributes, if they exist
-  #ncatts <- NULL
-  #nmax <- RNetCDF::var.inq.nc(nc1, temp.idx)$natts - 1
-  #for(ii in 0:nmax) ncatts[ii + 1] <- RNetCDF::att.inq.nc(nc1, temp.idx, ii)$name
-  #scale.idx <- grep('scale', ncatts, ignore.case=TRUE) - 1
-  #if(length(scale.idx) != 0){
-  #  scale <- RNetCDF::att.get.nc(nc1, temp.idx, attribute=scale.idx)
-  #} else{
-  #  scale <- 1
-  #}
-  #off.idx <- grep('off', ncatts, ignore.case=TRUE) - 1
-  #if(length(off.idx) != 0){
-  #  offset <- RNetCDF::att.get.nc(nc1, temp.idx, attribute=off.idx)
-  #} else{
-  #  offset <- 0
-  #}
+  # result will be 3D array (nrow x ncol x T) in terra North-up order
+  L_arr <- array(0, dim = c(tmpl_nr, tmpl_nc, T))
   
-  # get and check the vars
-  #depth <- RNetCDF::var.get.nc(nc1, dep.idx)
-  lon <- RNetCDF::var.get.nc(nc1, lon.idx)
-  if(length(dim(lon)) == 2) lon <- lon[,1]
-  if(!any(lon < 180)) lon <- lon - 360
-  lat <- RNetCDF::var.get.nc(nc1, lat.idx)
-  if(length(dim(lat)) == 2) lat <- lat[1,]
-  
-  # result will be array of likelihood surfaces
-  L.glorys <- array(0, dim = c(length(lon), length(lat), length(dateVec)))
-  
- for(i in 1:T){
+  for(i in 1:T){
+    print(dateVec[i])
     
-   print(dateVec[i])
-   
-   pdt.i <- pdt[which(pdt$dateVec == i),]
+    pdt.i <- pdt[which(pdt$dateVec == i),]
     if (nrow(pdt.i) < 3) next
     
-   # make sure we get the filename right
-   glorys_file <- file.path(glorys.dir, paste0(filename, '_', format(dateVec[i], '%Y-%m-%d'), '.nc'))
-   if (!file.exists(glorys_file)) glorys_file <- file.path(glorys.dir, paste0(filename, '_', format(dateVec[i], '%Y%m%d'), '.nc'))
-   if (!file.exists(glorys_file)){
-     glorys_flist <- list.files(glorys.dir)
-     m <- grep(format(dateVec[i], '%Y%m%d'), glorys_flist)
-     if (length(m) > 0) glorys_file <- file.path(glorys.dir, glorys_flist[m[1]])
-   }
-   if (!file.exists(glorys_file)) next
-   # open day's glorys data
-   br <- raster::brick(glorys_file)
-   dat <- raster::as.array(br)
-    
-    #extracts depth from tag data for day i
-    y <- pdt.i$depth[!is.na(pdt.i$depth)] 
-    y[y < 0] <- 0
-    
-    # use the which.min
-    depIdx = sort(unique(apply(as.data.frame(pdt.i$depth), 1, FUN = function(x) which.min((x - depth) ^ 2))))
+    depIdx <- sort(unique(vapply(pdt.i$depth, function(x) which.min((x - depth)^2), integer(1))))
     if (length(depIdx) < 2) next
     glorysDep <- depth[depIdx]
     
-    # make predictions based on the regression model earlier for the temperature at standard WOA depth levels for low and high temperature at that depth
-    suppressWarnings(
-      fit.low <- locfit::locfit(pdt.i$mintemp ~ pdt.i$depth, maxk=500)
-    )
-    suppressWarnings(
-      fit.high <- locfit::locfit(pdt.i$maxtemp ~ pdt.i$depth, maxk=500)
-    )
-    n = length(glorysDep)
+    glorys_file <- file.path(glorys.dir, paste0(filename, '_', format(dateVec[i], '%Y-%m-%d'), '.nc'))
+    if (!file.exists(glorys_file)) glorys_file <- file.path(glorys.dir, paste0(filename, '_', format(dateVec[i], '%Y%m%d'), '.nc'))
+    if (!file.exists(glorys_file)){
+      glorys_flist <- list.files(glorys.dir)
+      m <- grep(format(dateVec[i], '%Y%m%d'), glorys_flist)
+      if (length(m) > 0) glorys_file <- file.path(glorys.dir, glorys_flist[m[1]])
+    }
+    if (!file.exists(glorys_file)) next
     
-    pred.low = stats::predict(fit.low, newdata = glorysDep, se = TRUE, get.data = TRUE)
-    pred.high = stats::predict(fit.high, newdata = glorysDep, se = TRUE, get.data = TRUE)
+    r_sub <- terra::rast(glorys_file, lyrs = depIdx)
+    if (terra::nrow(r_sub) != tmpl_nr || terra::ncol(r_sub) != tmpl_nc) {
+      target_g <- terra::rast(nrows = tmpl_nr, ncols = tmpl_nc, extent = terra::ext(tmpl_ext), crs = "EPSG:4326")
+      r_sub <- terra::resample(r_sub, target_g)
+    }
+    
+    sd_sub <- terra::focal(r_sub, w = focalDim, fun = "sd", na.rm = TRUE)
+    dat    <- terra::as.array(r_sub)
+    sd.i   <- terra::as.array(sd_sub)
+    
+    suppressWarnings(fit.low  <- locfit::locfit(pdt.i$mintemp ~ pdt.i$depth, maxk = 500))
+    suppressWarnings(fit.high <- locfit::locfit(pdt.i$maxtemp ~ pdt.i$depth, maxk = 500))
+    
+    pred.low  <- stats::predict(fit.low,  newdata = glorysDep, se = TRUE, get.data = TRUE)
+    pred.high <- stats::predict(fit.high, newdata = glorysDep, se = TRUE, get.data = TRUE)
     
     if (use.se && all(is.finite(pred.low$se.fit)) && all(is.finite(pred.high$se.fit))){
-      df = data.frame(low = pred.low$fit - pred.low$se.fit,
-                      high = pred.high$fit + pred.high$se.fit,
-                      depth = glorysDep)
+      df <- data.frame(low = pred.low$fit - pred.low$se.fit,
+                       high = pred.high$fit + pred.high$se.fit,
+                       depth = glorysDep)
       if (any(!is.finite(df$low)) || any(!is.finite(df$high)) || min(df$low, na.rm = TRUE) < -2) {
-        df = data.frame(low = pred.low$fit,
-                        high = pred.high$fit,
-                        depth = glorysDep)
+        df <- data.frame(low = pred.low$fit, high = pred.high$fit, depth = glorysDep)
       }
     } else{
-      df = data.frame(low = pred.low$fit,
-                      high = pred.high$fit,
-                      depth = glorysDep)
+      df <- data.frame(low = pred.low$fit, high = pred.high$fit, depth = glorysDep)
     }
     df$high <- pmax(df$high, df$low + 1.0)
     
-    # calculate sd using Le Bris neighbor method and focal()
-    sd.i = array(NA, dim = c(dim(dat)[1:2], length(depIdx)))
-    
-    for(ii in 1:length(depIdx)){
-      r = raster::flip(raster::raster(t(dat[,,depIdx[ii]])), 2)
-      f1 = raster::focal(r, w = matrix(1, nrow = focalDim, ncol = focalDim), fun = function(x) stats::sd(x, na.rm = TRUE), pad = TRUE)
-      f1 = t(raster::as.matrix(raster::flip(f1, 2)))
-      sd.i[,,ii] = f1
-    }
-    
-    # setup the likelihood array for each day. Will have length (dim[3]) = n depths
-    lik.pdt = array(NA, dim = c(dim(dat)[1], dim(dat)[2], length(depIdx)))
+    lik.pdt <- array(NA_real_, dim = c(dim(dat)[1], dim(dat)[2], length(depIdx)))
     active_b <- logical(length(depIdx))
-    deep_ocean <- is.finite(dat[,,depIdx[length(depIdx)]]) & is.finite(sd.i[,,length(depIdx)])
+    deep_ocean <- is.finite(dat[,,length(depIdx)]) & is.finite(sd.i[,,length(depIdx)])
     
-    for (b in 1:length(depIdx)) {
-      #calculate the likelihood for each depth level, b
-      lik.try <- try(likint3(dat[,,depIdx[b]], sd.i[,,b], df[b, 1], df[b, 2]), TRUE)
-      
+    for (b in seq_along(depIdx)) {
+      lik.try <- try(likint3(dat[,,b], sd.i[,,b], df$low[b], df$high[b]), TRUE)
       if (inherits(lik.try, 'try-error') || !any(lik.try > 0, na.rm = TRUE)){
         low_b  <- pred.low$fit[b]
         high_b <- max(pred.high$fit[b], low_b + 1.0)
@@ -196,10 +142,9 @@ calc.glorys <- function(pdt, filename, glorys.dir, focalDim = 9, dateVec, depthV
           low_b  <- max(-2, pred.low$fit[b] - pred.low$se.fit[b])
           high_b <- max(low_b + 1.0, pred.high$fit[b] + pred.high$se.fit[b])
         }
-        lik.try <- try(likint3(dat[,,depIdx[b]], sd.i[,,b], low_b, high_b), TRUE)
+        lik.try <- try(likint3(dat[,,b], sd.i[,,b], low_b, high_b), TRUE)
         if (inherits(lik.try, 'try-error') || !any(lik.try > 0, na.rm = TRUE)){
-          lik.try <- dat[,,depIdx[b]] * 0
-          warning(paste('Warning: likint3 failed after trying with and without SE prediction of depth-temp profiles. This is most likely a divergent integral for ', dateVec[i], '...', sep=''))
+          lik.try <- dat[,,b] * 0
         }
       }
       if (any(lik.try > 0, na.rm = TRUE)) {
@@ -207,15 +152,12 @@ calc.glorys <- function(pdt, filename, glorys.dir, focalDim = 9, dateVec, depthV
         lik.try[deep_ocean & (is.na(lik.try) | lik.try < 1e-3)] <- 1e-3
         lik.try[!deep_ocean] <- NA_real_
       }
-      
       lik.pdt[,,b] <- lik.try
     }
     
     use.idx <- which(active_b)
-    
     if (length(use.idx) == 0) next
     
-    # geometric mean across active depth levels for each day
     log_sum <- matrix(0, nrow = dim(dat)[1], ncol = dim(dat)[2])
     n_valid <- matrix(0L, nrow = dim(dat)[1], ncol = dim(dat)[2])
     for (b in use.idx) {
@@ -224,31 +166,26 @@ calc.glorys <- function(pdt, filename, glorys.dir, focalDim = 9, dateVec, depthV
       log_sum[ok] <- log_sum[ok] + log(lb[ok])
       n_valid[ok] <- n_valid[ok] + 1L
     }
-    lik.pdt <- matrix(NA_real_, nrow = dim(dat)[1], ncol = dim(dat)[2])
+    out <- matrix(NA_real_, nrow = dim(dat)[1], ncol = dim(dat)[2])
     has_obs <- n_valid > 0L
-    lik.pdt[has_obs] <- exp(log_sum[has_obs] / n_valid[has_obs])
-    m <- suppressWarnings(max(lik.pdt, na.rm = TRUE))
+    out[has_obs] <- exp(log_sum[has_obs] / n_valid[has_obs])
+    m <- suppressWarnings(max(out, na.rm = TRUE))
     if (is.finite(m) && m > 0) {
-      lik.mat <- t(lik.pdt / m)
-      if (all(dim(lik.mat) == dim(L.glorys)[1:2])) {
-        L.glorys[,,i] <- lik.mat
-      } else {
-        warning(paste0("Dimension mismatch for date ", dateVec[i], ": skipping slice."))
-      }
+      slice <- out / m
+      slice[is.na(slice) | slice < 0] <- 0
+      L_arr[,,i] <- slice
     }
-    
   }
   
   print(paste('Making final likelihood raster...'))
   
   crs <- "+proj=longlat +datum=WGS84 +ellps=WGS84"
-  L.glorys <- raster::brick(L.glorys, xmn=min(lon), xmx=max(lon), ymn=min(lat), ymx=max(lat), transpose=TRUE, crs)
+  L.glorys <- terra::rast(L_arr, extent = terra::ext(tmpl_ext), crs = crs)
   if (flip_y){
-    L.glorys <- raster::flip(L.glorys, direction = 'y')
-    warning('Output raster is being flipped in the y. If this is not desired, use need_flip=FALSE.')
+    L.glorys <- terra::flip(L.glorys, direction = "vertical")
+    warning('Output raster is being flipped in the y. If this is not desired, use flip_y=FALSE.')
   }
-  
-  names(L.glorys) = as.character(dateVec)
+  names(L.glorys) <- as.character(dateVec)
   
   t1 <- Sys.time()
   print(paste('glorys profile calculations took ', round(as.numeric(difftime(t1, t0, units='mins')), 2), 'minutes...'))

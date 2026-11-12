@@ -182,17 +182,14 @@ calc.ohc <- function(pdt, filename, isotherm = '', ohc.dir, dateVec, bathy = TRU
     maxT.ohc <- cp * rho * sum(df$high - isotherm, na.rm = TRUE) / 10000
     
     # Perform hycom integration
-    #dat[dat < isotherm] <- NA
     dat <- dat - isotherm
-    ohc <- cp * rho * apply(dat[,,depIdx], 1:2, sum, na.rm = TRUE) / 10000 
+    ohc <- cp * rho * apply(dat[,,depIdx, drop = FALSE], 1:2, sum, na.rm = TRUE) / 10000 
     ohc[ohc == 0] <- NA
     
-    # calc sd of OHC
-    # focal calc on mean temp and write to sd var
-    r = raster::flip(raster::raster(t(ohc)), 2)
-    sdx = raster::focal(r, w = matrix(1, nrow = 9, ncol = 9),
-                        fun = function(x) stats::sd(x, na.rm = TRUE), pad=TRUE)
-    sdx = t(raster::as.matrix(raster::flip(sdx, 2)))
+    # calc sd of OHC via terra
+    r = terra::flip(terra::rast(t(ohc)), direction = "vertical")
+    sdx = terra::focal(r, w = 9, fun = "sd", na.rm = TRUE)
+    sdx = t(terra::as.matrix(terra::flip(sdx, direction = "vertical"), wide = TRUE))
 
     # compare hycom to that day's tag-based ohc
     #lik.ohc <- likint3(ohc, sdx, minT.ohc, maxT.ohc)
@@ -231,16 +228,12 @@ calc.ohc <- function(pdt, filename, isotherm = '', ohc.dir, dateVec, bathy = TRU
   
   crs <- "+proj=longlat +datum=WGS84 +ellps=WGS84"
   if(!any(lon < 180)) lon <- lon - 360
-  list.ohc <- list(x = lon, y = lat, z = L.ohc)
-  ex <- raster::extent(list.ohc)
-  L.ohc <- raster::brick(list.ohc$z, xmn=ex[1], xmx=ex[2], ymn=ex[3], ymx=ex[4], transpose=TRUE, crs)
+  L.ohc[is.na(L.ohc) | L.ohc < 0] <- 0
+  L.ohc <- terra::rast(aperm(L.ohc, c(2, 1, 3)), extent = terra::ext(min(lon), max(lon), min(lat), max(lat)), crs = crs)
   if (flip_y){
-    L.ohc <- raster::flip(L.ohc, direction = 'y')
+    L.ohc <- terra::flip(L.ohc, direction = "vertical")
     warning('Output raster is being flipped in the y. If this is not desired, use need_flip=FALSE.')
   }
-
-  L.ohc[L.ohc < 0] <- 0
-  
   names(L.ohc) = as.character(dateVec)
   
   t1 <- Sys.time()

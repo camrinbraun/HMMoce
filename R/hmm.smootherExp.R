@@ -68,7 +68,8 @@ hmm.smoother1.exp <- function(f, L, K, P=NULL, bathy, n.div, mini.idx, m=m, sigm
   }
 
   ## reassign bathymetry raster as matrix for landmasking
-  bathy <- reverse(raster::as.matrix(bathy)) # reverse to match q[[ii]] format below
+  if (!inherits(bathy, "SpatRaster")) bathy <- terra::rast(bathy)
+  bathy <- reverse(terra::as.matrix(bathy, wide = TRUE)) # reverse to match q[[ii]] format below
   
   smooth <- array(0, dim = dim(f$phi))
   smooth[,T,,] <- f$phi[,T,,]
@@ -160,7 +161,8 @@ hmm.smoother2.exp <- function(f, K1, K2, L, P, bathy, n.div, mini.idx, m=m, sigm
   K2 <- imager::as.cimg(K2)
   
   ## reassign bathymetry raster as matrix for landmasking
-  bathy <- reverse(raster::as.matrix(bathy)) # reverse to match q[[ii]] format below
+  if (!inherits(bathy, "SpatRaster")) bathy <- terra::rast(bathy)
+  bathy <- reverse(terra::as.matrix(bathy, wide = TRUE)) # reverse to match q[[ii]] format below
   
     D1exp <- (sigmas[1] ^ 2) / n.div
     D2exp <- (sigmas[2] ^ 2) / n.div

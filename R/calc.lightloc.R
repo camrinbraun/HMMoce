@@ -133,23 +133,26 @@ calc.lightloc <- function(lightloc, locs.grid, dateVec, errEll = TRUE, lon_only 
     }
     
     ## sum over ii's in case there is more than 1 row of data per day
-    L.lightloc[,,t] <- apply(L.lightloc.try, 1:2, sum, na.rm = T)
+    L.lightloc[,,t] <- rowSums(L.lightloc.try, na.rm = TRUE, dims = 2)
     
     ## normalize
-    L.lightloc[,,t] = L.lightloc[,,t] / max(L.lightloc[,,t], na.rm=T)
+    m_t <- suppressWarnings(max(L.lightloc[,,t], na.rm = TRUE))
+    if (is.finite(m_t) && m_t > 0) L.lightloc[,,t] <- L.lightloc[,,t] / m_t
    
   }
   
   print(paste('Making final likelihood raster...'))
   
-  # this performs some transformations to the likelihood array to convert to useable raster
   crs <- "+proj=longlat +datum=WGS84 +ellps=WGS84"
-  list.locs <- list(x = locs.grid$lon[1,], y = locs.grid$lat[,1], z = L.lightloc)
-  ex <- raster::extent(list.locs)
-  L.lightloc <- raster::brick(list.locs$z, xmn = ex[1], xmx = ex[2], ymn = ex[3], ymx = ex[4], transpose = T, crs)
-  L.lightloc <- raster::flip(L.lightloc, direction = 'y')
-  
+  L_arr <- aperm(L.lightloc, c(2, 1, 3))
+  L_arr <- L_arr[dim(L_arr)[1]:1, , , drop = FALSE]
+  L.lightloc <- terra::rast(
+    L_arr,
+    extent = terra::ext(min(lon), max(lon), min(lat), max(lat)),
+    crs = crs
+  )
   L.lightloc[L.lightloc < 0] <- 0
+  names(L.lightloc) <- as.character(dateVec)
   
   t1 <- Sys.time()
   print(paste('Light calculations took ', round(as.numeric(difftime(t1, t0, units='mins')), 2), 'minutes...'))

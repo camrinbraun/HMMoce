@@ -10,7 +10,7 @@
 #'   example, 'tuna_date.nc'. This filename is required here so the calc 
 #'   function knows where to get the env data.
 #' @param glorys.dir directory of downloaded glorys (or other) data
-#' @param focalDim is integer for dimensions of raster::focal used to calculate 
+#' @param focalDim is integer for dimensions of terra::focal used to calculate 
 #'   sd() of temperature grid cell. Recommend focalDim = 9 for glorys data at 
 #'   0.08deg resolution.
 #' @param dateVec is vector of POSIXct dates for each time step of the likelihood
@@ -20,7 +20,7 @@
 #'   have!
 #' @param flip_y is logical indicating whether or not to flip the resulting likelihood in the y. Set this to true if output likelihoods are upside down.
 #'   
-#' @return a raster brick of glorys profile likelihood
+#' @return a terra SpatRaster of glorys profile likelihood
 #' @export
 #' @importFrom foreach %dopar%
 #'
@@ -207,12 +207,11 @@ calc.glorys.par <- function(pdt, filename, glorys.dir, focalDim = 9, dateVec, de
   print(paste('Making final likelihood raster...'))
   
   crs <- "+proj=longlat +datum=WGS84 +ellps=WGS84"
-  out_rast <- terra::rast(L_arr, extent = terra::ext(tmpl_ext), crs = crs)
+  L.glorys <- terra::rast(L_arr, extent = terra::ext(tmpl_ext), crs = crs)
   if (flip_y){
-    out_rast <- terra::flip(out_rast, direction = "vertical")
+    L.glorys <- terra::flip(L.glorys, direction = "vertical")
     warning('Output raster is being flipped in the y. If this is not desired, use flip_y=FALSE.')
   }
-  L.glorys <- raster::brick(out_rast)
   names(L.glorys) <- as.character(dateVec)
   
   t1 <- Sys.time()

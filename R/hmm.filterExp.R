@@ -94,7 +94,8 @@ hmm.filterExp <- function(g, L, K, sigmas, n.div = 10, bathy, P, m, maskL = FALS
   p <- list(); q <- list(); post <- list()
   
   ## reassign bathymetry raster as matrix for landmasking
-  bathy <- reverse(raster::as.matrix(bathy)) # reverse to match q[[ii]] format below
+  if (!inherits(bathy, "SpatRaster")) bathy <- terra::rast(bathy)
+  bathy <- reverse(terra::as.matrix(bathy, wide = TRUE)) # reverse to match q[[ii]] format below
   
   # Start filter iterations
   for(t in 2:T){

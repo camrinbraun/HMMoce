@@ -108,12 +108,15 @@ calc.locs <- function(locs, gps = NULL, iniloc, locs.grid, dateVec){
   
   print(paste('Making final likelihood raster...'))
   
-  # this performs some transformations to the likelihood array to convert to useable raster
   crs <- "+proj=longlat +datum=WGS84 +ellps=WGS84"
-  list.locs <- list(x = locs.grid$lon[1,], y = locs.grid$lat[,1], z = L.locs)
-  ex <- raster::extent(list.locs)
-  L.locs <- raster::brick(list.locs$z, xmn = ex[1], xmx = ex[2], ymn = ex[3], ymx = ex[4], transpose = T, crs)
-  L.locs <- raster::flip(L.locs, direction = 'y')
+  L_arr <- aperm(L.locs, c(2, 1, 3))
+  L_arr <- L_arr[dim(L_arr)[1]:1, , , drop = FALSE]
+  L.locs <- terra::rast(
+    L_arr,
+    extent = terra::ext(min(locs.grid$lon[1,]), max(locs.grid$lon[1,]), min(locs.grid$lat[,1]), max(locs.grid$lat[,1])),
+    crs = crs
+  )
+  names(L.locs) <- as.character(dateVec)
   
   return(list(L.locs = L.locs, gpsIdx = which(dateVec %in% gpsDates)))
   

@@ -22,9 +22,11 @@
 calc.bathy <- function(mmd, bathy.grid, dateVec, focalDim = NULL, sens.err = 5, lik.type = 'max'){
   
   if (lik.type == 'dnorm') warning('Bathymetry likelihood calculation with lik.type = normal is experimental. If you use it, please send feedback on your experience as we work to improve it.')
+  if (!inherits(bathy.grid, "SpatRaster")) bathy.grid <- terra::rast(bathy.grid)
   
   ## convert a negative bathy grid to positive to match expectations and mask land
-  if (raster::cellStats(bathy.grid, 'min', na.rm=T) < 0){
+  b_min <- suppressWarnings(min(terra::values(bathy.grid), na.rm = TRUE))
+  if (is.finite(b_min) && b_min < 0){
     bathy.grid <- bathy.grid * -1
     bathy.grid[bathy.grid < 0] <- NA
   }
@@ -37,65 +39,50 @@ calc.bathy <- function(mmd, bathy.grid, dateVec, focalDim = NULL, sens.err = 5, 
   
   print(paste("Starting bathymetry likelihood calculation..."))
   t0 <- Sys.time()
-  #if (class(mmd$Date) != 'Date') stop('mmd$Date must be of class Date')
   
-  # compute bathy.grid sd
-  sdx = raster::focal(bathy.grid, w = matrix(1, nrow = focalDim, ncol = focalDim), fun = function(x) stats::sd(x,na.rm = TRUE), pad = TRUE)
-  ## sdx to matrix for likint3
-  sdx = t(raster::as.matrix(raster::flip(sdx, 2)))
-  ## bathy grid to matrix for likint3
-  dat <- base::t(raster::as.matrix(raster::flip(bathy.grid, 2)))
+  if (is.null(focalDim)){
+    focalDim <- round(0.25 / terra::res(bathy.grid)[1], 0)
+    if (focalDim %% 2 == 0) focalDim <- focalDim - 1
+    if (focalDim < 3) focalDim <- 3
+  }
+  
+  dat <- terra::as.matrix(bathy.grid, wide = TRUE)
+  if (lik.type == 'dnorm') {
+    sd_r <- terra::focal(bathy.grid, w = focalDim, fun = "sd", na.rm = TRUE)
+    sdx  <- terra::as.matrix(sd_r, wide = TRUE)
+  }
   
   T <- length(dateVec)
   print(paste("Starting iterations through deployment period ", "..."))
   
-  L.bathy <- array(0, dim = c(dim(bathy.grid)[2:1], length(dateVec)))
-  lon.agg <- seq(raster::extent(bathy.grid)[1], raster::extent(bathy.grid)[2], 
-                 length.out = dim(bathy.grid)[2])
-  lat.agg <- seq(raster::extent(bathy.grid)[3], raster::extent(bathy.grid)[4], 
-                 length.out = dim(bathy.grid)[1])
+  L_arr <- array(0, dim = c(terra::nrow(bathy.grid), terra::ncol(bathy.grid), T))
   
   for (i in 1:T) {
-
     print(dateVec[i])
-    
     mmd.i <- mmd[which(mmd$dateVec == i),]
     if (nrow(mmd.i) == 0) next
     
-    bathy.i <- c(mmd.i$maxDepth * (1 - sens.err / 100), mmd.i$maxDepth * (1 + sens.err / 100)) # sensor error
+    bathy.i <- c(mmd.i$maxDepth * (1 - sens.err / 100), mmd.i$maxDepth * (1 + sens.err / 100))
     
     if (lik.type == 'max'){
-      ## create bathy max from max depth of tag to max of bathy grid allowed (=1), otherwise 0
-      lik.bathy <- bathy.grid
-      lik.bathy[lik.bathy < bathy.i[1]] <- 0
-      lik.bathy[lik.bathy >= bathy.i[1]] <- 1
-      lik.bathy <- base::t(raster::as.matrix(raster::flip(lik.bathy, 2)))
-      
+      lik.bathy <- matrix(0, nrow = nrow(dat), ncol = ncol(dat))
+      lik.bathy[!is.na(dat) & dat >= bathy.i[1]] <- 1
     } else if (lik.type == 'dnorm'){
-      
-      ## the actual likelihood calculation
       lik.bathy <- likint3(dat, sdx, bathy.i[1], bathy.i[2])
-      lik.bathy = as.matrix(lik.bathy) / max(as.matrix(lik.bathy), na.rm = TRUE)
+      m <- suppressWarnings(max(lik.bathy, na.rm = TRUE))
+      if (is.finite(m) && m > 0) lik.bathy <- lik.bathy / m
     } else{
       stop('Argument lik.type can only be one of max or dnorm.')
     }
     
-    lik.bathy[is.na(lik.bathy) | is.infinite(lik.bathy)] <- 0
-    L.bathy[,,i] <- lik.bathy
+    lik.bathy[is.na(lik.bathy) | is.infinite(lik.bathy) | lik.bathy < 0] <- 0
+    L_arr[,,i] <- lik.bathy
   }
-  
-  L.bathy <- aperm(L.bathy,c(2,1,3))
-  L.bathy <- L.bathy[,dim(L.bathy)[2]:1,]
   
   print(paste("Making final likelihood raster..."))
   crs <- "+proj=longlat +datum=WGS84 +ellps=WGS84"
-  list.bathy <- list(x = lon.agg, y = lat.agg, z = L.bathy)
-
-  ex <- raster::extent(list.bathy)
-  L.bathy <- raster::brick(list.bathy$z, xmn = ex[1], xmx = ex[2], 
-                           ymn = ex[3], ymx = ex[4], transpose = F, crs)
-  L.bathy <- raster::flip(raster::flip(L.bathy, direction = "y"), direction = 'x')
-  L.bathy[L.bathy < 0] <- 0
+  L.bathy <- terra::rast(L_arr, extent = terra::ext(bathy.grid), crs = crs)
+  names(L.bathy) <- as.character(dateVec)
   
   t1 <- Sys.time()
   print(paste("Bathymetric calculations took ", round(as.numeric(difftime(t1, t0, units = "mins")), 2), "minutes..."))

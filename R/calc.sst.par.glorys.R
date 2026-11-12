@@ -46,167 +46,92 @@ calc.sst.par.glorys <- function(tag.sst, filename, sst.dir, dateVec, focalDim = 
                           dplyr::summarise(minT = min(Temperature, na.rm=T), maxT = max(Temperature, na.rm=T), .groups = 'drop_last'))
   T <- length(dateVec)
 
-  # GET EVERYTHING SETUP BEFORE PARALLEL
-  # open day's sst data
-  #nc <- RNetCDF::open.nc(dir(sst.dir, full.names = T)[1])
-  # open nc and get the indices for the vars
+  # open template nc using terra to get grid dimensions and extent
   fl_nc <- list.files(sst.dir, pattern = "\\.nc$", full.names = TRUE)
   if (length(fl_nc) == 0) stop("Source raster file does not exist in sst.dir.")
-  nc1 <- raster::brick(fl_nc[1])
-  tfile <- paste0(tempfile(), '.nc')
-  raster::writeRaster(nc1, tfile)
-  nc1 =  RNetCDF::open.nc(tfile)
-  ncnames = NULL
-  nmax <- RNetCDF::file.inq.nc(nc1)$nvars - 1
-  for(ii in 0:nmax) ncnames[ii + 1] <- RNetCDF::var.inq.nc(nc1, ii)$name
-  #temp.idx <- grep('temp', ncnames, ignore.case=TRUE) - 1
-  lat.idx <- grep('lat', ncnames, ignore.case=TRUE) - 1
-  lon.idx <- grep('lon', ncnames, ignore.case=TRUE) - 1
-  
-  # get and check the vars
-  #depth <- RNetCDF::var.get.nc(nc1, dep.idx)
-  lon <- RNetCDF::var.get.nc(nc1, lon.idx)
-  if(length(dim(lon)) == 2) lon <- lon[,1]
-  if(!any(lon < 180)) lon <- lon - 360
-  lat <- RNetCDF::var.get.nc(nc1, lat.idx)
-  if(length(dim(lat)) == 2) lat <- lat[1,]
-  
-  ## first successful iteration, define additional vars
-  # get correct name in sst data
-  #ncnames = NULL
-  #nmax <- RNetCDF::file.inq.nc(nc)$nvars - 1
-  #for(ii in 0:nmax) ncnames[ii + 1] <- RNetCDF::var.inq.nc(nc, ii)$name
-  #nameidx <- grep('sst', ncnames, ignore.case=TRUE) - 1
-  
-  #lon <- c(RNetCDF::var.get.nc(nc, 'longitude'))
-  #lat <- c(RNetCDF::var.get.nc(nc, 'latitude'))
-  
-  # result will be array of likelihood surfaces
-  L.sst <- array(0, dim = c(length(lon), length(lat), T))
-  
-  ## get grid
-  #dat <- RNetCDF::var.get.nc(nc, nameidx) # for OI SST
-  
-  # calc sd of SST
-  # focal calc on mean temp and write to sd var
-  #r <- raster::flip(raster::raster(t(dat), xmn=min(lon), xmx=max(lon),
-  #                                 ymn=min(lat), ymx=max(lat)), 2)
-  
-  # get grid parameters from first file
-  glorys_flist <- list.files(sst.dir, pattern = "\\.nc$", full.names = TRUE)
-  if (length(glorys_flist) == 0) stop("Source raster file does not exist in sst.dir.")
-  r <- raster::raster(glorys_flist[1])
+  first_nc <- NULL
+  for (d_idx in seq_along(dateVec)) {
+    cand <- c(
+      file.path(sst.dir, paste0(filename, '_', format(dateVec[d_idx], '%Y-%m-%d'), '.nc')),
+      file.path(sst.dir, paste0(filename, '_', format(dateVec[d_idx], '%Y%m%d'), '.nc'))
+    )
+    cand <- cand[file.exists(cand)]
+    if (length(cand) > 0) {
+      first_nc <- cand[1]
+      break
+    }
+  }
+  if (is.null(first_nc)) first_nc <- fl_nc[1]
+  r_tmpl   <- terra::rast(first_nc, lyrs = 1)
+  tmpl_nr  <- terra::nrow(r_tmpl)
+  tmpl_nc  <- terra::ncol(r_tmpl)
+  tmpl_ext <- as.vector(terra::ext(r_tmpl))
+  if (!any(tmpl_ext[1:2] < 180)) tmpl_ext[1:2] <- tmpl_ext[1:2] - 360
   
   ## deal with focalDim if NULL
   if (is.null(focalDim)){
-    focalDim <- round(0.25 / raster::res(r)[1], 0)
+    focalDim <- round(0.25 / terra::res(r_tmpl)[1], 0)
     if (focalDim %% 2 == 0) focalDim <- focalDim - 1
-    if (focalDim == 1) focalDim <- 3 ## if this equals 1, weird things happen
+    if (focalDim == 1) focalDim <- 3
   }
   
-  ## aggregate hi-res rasters 
-  #if(auto.aggr & round(raster::res(r)[1], 2) < 0.1){
-  #  print('Raster is very high resolution. Automatically coarsening using raster::aggregate. If you do not want this behavior, set auto.aggr = FALSE')
-  #  aggFact <- round(0.1 / round(raster::res(r)[1], 2), 0)
-  #  if(aggFact > 1) r <- raster::aggregate(r, fact = aggFact)
-  #  L.sst <- array(0, dim = c(dim(r)[2], dim(r)[1], T))
-  #}
-  
-  # get lat/lon for raster creation later
-  lon.agg <- seq(raster::extent(r)[1], raster::extent(r)[2], length.out=dim(r)[2])
-  lat.agg <- seq(raster::extent(r)[3], raster::extent(r)[4], length.out=dim(r)[1])
-  
-  ## END of SETUP RUN
+  # result will be 3D array (nrow x ncol x T) in terra North-up order
+  L_arr <- array(0, dim = c(tmpl_nr, tmpl_nc, T))
   
   print('Processing in parallel... ')
   
   cl = parallel::makeCluster(ncores)
   doParallel::registerDoParallel(cl, cores = ncores)
+  on.exit(try(parallel::stopCluster(cl), silent = TRUE), add = TRUE)
   
-  ans = foreach::foreach(i = 1:T, .export = 'likint3', .packages = c('raster')) %dopar%{
+  ans = foreach::foreach(i = 1:T, .export = 'likint3', .packages = c('terra')) %dopar%{
       
     tag.sst.i <- tag.sst[which(tag.sst$dateVec == i),]
-    if (nrow(tag.sst.i) == 0) return(NA)
-    sst.i <- c(tag.sst.i$minT * (1 - sens.err / 100), tag.sst.i$maxT * (1 + sens.err / 100)) # sensor error
+    if (nrow(tag.sst.i) == 0) return(NULL)
+    sst.i <- c(tag.sst.i$minT * (1 - sens.err / 100), tag.sst.i$maxT * (1 + sens.err / 100))
     
-    # open day's sst data
-    #nc <- RNetCDF::open.nc(paste(sst.dir, filename, '_', as.Date(dateVec[i]), '.nc', sep='')) #add lat lon in filename '.nc', sep=''))
-    #dat <- RNetCDF::var.get.nc(nc, nameidx) # for OI SST
-    
-    # make sure we get the filename right
     glorys_file <- file.path(sst.dir, paste0(filename, '_', format(dateVec[i], '%Y-%m-%d'), '.nc'))
     if (!file.exists(glorys_file)) glorys_file <- file.path(sst.dir, paste0(filename, '_', format(dateVec[i], '%Y%m%d'), '.nc'))
     if (!file.exists(glorys_file)){
       glorys_flist <- list.files(sst.dir)
       m <- grep(format(dateVec[i], '%Y%m%d'), glorys_flist)
-      if (length(m) > 0) glorys_file <- file.path(sst.dir, glorys_flist[m])
-      if (length(glorys_file) > 1){
-        warning('Daily glorys file length is > 1. Choosing the first one which may or may not be the right guess.')
-        glorys_file <- glorys_file[1]
-      }
+      if (length(m) > 0) glorys_file <- file.path(sst.dir, glorys_flist[m[1]])
     }
-    # open day's glorys data
-    r <- raster::raster(glorys_file)
+    if (!file.exists(glorys_file)) return(NULL)
     
-    # calc sd of SST
-    # focal calc on mean temp and write to sd var
-    #r = raster::flip(raster::raster(t(dat), xmn=min(lon), xmx=max(lon),
-    #                                ymn=min(lat), ymx=max(lat)), 2)
+    r <- terra::rast(glorys_file, lyrs = 1)
+    if (terra::nrow(r) != tmpl_nr || terra::ncol(r) != tmpl_nc) {
+      target_g <- terra::rast(nrows = tmpl_nr, ncols = tmpl_nc, extent = terra::ext(tmpl_ext), crs = "EPSG:4326")
+      r <- terra::resample(r, target_g)
+    }
     
-    # check for coarse enough resolution that our calculations wont take all day
-    #if(auto.aggr & round(raster::res(r)[1], 2) < 0.1){
-    #  aggFact <- round(0.1 / round(raster::res(r)[1], 2), 0)
-    #  if(aggFact > 1) r <- raster::aggregate(r, fact = aggFact)
-    #}
+    sd_r <- terra::focal(r, w = focalDim, fun = "sd", na.rm = TRUE)
+    dat  <- terra::as.matrix(r, wide = TRUE)
+    sdx  <- terra::as.matrix(sd_r, wide = TRUE)
     
-    # calculate sd from sst grid using focal()
-    sdx = raster::focal(r, w = matrix(1, nrow = focalDim, ncol = focalDim), fun = function(x) stats::sd(x, na.rm = T), pad = TRUE)
-    sdx = t(raster::as.matrix(raster::flip(sdx, 2)))
-    
-    # re-calc dat after raster::aggregate, if it happened
-    dat <- base::t(raster::as.matrix(raster::flip(r, 2)))
-    
-    # compare sst to that day's tag-based sst
     lik.sst <- likint3(dat, sdx, sst.i[1], sst.i[2])
-    
-    lik.sst 
-    
+    lik.sst
   }
   
   parallel::stopCluster(cl)
+  on.exit(NULL)
   
-  #lapply
-  lik.sst <- lapply(ans, function(x) {
-    if (is.null(x) || (length(x) == 1 && is.na(x))) return(NA)
-    m <- max(x, na.rm = TRUE)
-    if (is.infinite(m) || is.na(m) || m == 0) return(matrix(0, nrow = nrow(x), ncol = ncol(x)))
-    x / m
-  })
-
   for (i in 1:T){
-    val <- lik.sst[[i]]
-    if (is.null(val) || (length(val) == 1 && is.na(val)) || inherits(val, "try-error")) {
-      L.sst[,,i] <- 0
-    } else if (all(dim(val) == dim(L.sst)[1:2])) {
-      L.sst[,,i] <- val
-    } else if (all(rev(dim(val)) == dim(L.sst)[1:2])) {
-      L.sst[,,i] <- t(val)
-    } else {
-      warning(paste0("Dimension mismatch for SST date ", dateVec[i], ": skipping slice."))
-      L.sst[,,i] <- 0
+    val <- ans[[i]]
+    if (is.matrix(val)) {
+      m <- suppressWarnings(max(val, na.rm = TRUE))
+      if (is.finite(m) && m > 0) {
+        slice <- val / m
+        slice[is.na(slice) | slice < 0] <- 0
+        L_arr[,,i] <- slice
+      }
     }
   }
   
   print(paste('Making final likelihood raster...'))
   
   crs <- "+proj=longlat +datum=WGS84 +ellps=WGS84"
-  list.sst <- list(x = lon.agg, y = lat.agg, z = L.sst)
-  ex <- raster::extent(list.sst)
-  L.sst <- raster::brick(list.sst$z, xmn=ex[1], xmx=ex[2], ymn=ex[3], ymx=ex[4], transpose=T, crs)
-  L.sst <- raster::flip(L.sst, direction = 'y')
-  
-  L.sst[L.sst < 0] <- 0
-  
+  L.sst <- terra::rast(L_arr, extent = terra::ext(tmpl_ext), crs = crs)
   names(L.sst) <- as.character(dateVec)
   
   t1 <- Sys.time()

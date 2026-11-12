@@ -7,9 +7,18 @@ library(readxl)
 library(dplyr)
 library(lubridate)
 library(ggplot2)
+library(terra)
 library(tags2etuff)
 # source("c:/Users/benjamin.galuardi/Documents/GitHub/HMMoce/microwave_to_etuff.R")
 devtools::load_all(".")
+
+save_rast_rds <- function(r, file) {
+  saveRDS(if (inherits(r, "SpatRaster")) terra::wrap(r) else r, file)
+}
+load_rast_rds <- function(file) {
+  x <- readRDS(file)
+  if (inherits(x, "PackedSpatRaster")) terra::unwrap(x) else if (inherits(x, "SpatRaster")) x else terra::rast(x)
+}
 
 gdrive_root_id <- "1jN4NVXfNcxVqIPxVvl3k3e3e4W3J5HgU" # "Cobia Shared Files"
 local_gdrive   <- "G:/.shortcut-targets-by-id/1jN4NVXfNcxVqIPxVvl3k3e3e4W3J5HgU/Cobia Shared Files"
@@ -282,7 +291,7 @@ if (!dir.exists(bathy.dir)) dir.create(bathy.dir, recursive = TRUE)
 bathy_file <- file.path(bathy.dir, "bathy.nc")
 if (file.exists(bathy_file)) {
   message("Loading cached bathymetry: ", bathy_file)
-  bathy <- raster::raster(bathy_file)
+  bathy <- terra::rast(bathy_file)
 } else {
   message("Fetching NOAA bathymetry raster for study area...")
   bathy <- tryCatch(
@@ -307,10 +316,10 @@ if (!is.null(lightloc) && nrow(lightloc) > 0) {
       errEll = TRUE,
       lon_only = FALSE
     )
-    saveRDS(L.light, light_rds)
+    save_rast_rds(L.light, light_rds)
   } else {
     message("Loading cached L.light: ", light_rds)
-    L.light <- readRDS(light_rds)
+    L.light <- load_rast_rds(light_rds)
   }
 } else {
   L.light <- NULL
@@ -321,7 +330,7 @@ if (!is.null(bathy) && !is.null(mmd) && nrow(mmd) > 0) {
   bathy_rds <- file.path(out_dir, "L.bathy.rds")
   if (!file.exists(bathy_rds)) {
     message("Calculating bathymetry likelihood (L.bathy)...")
-    bathy_crop <- raster::crop(bathy, raster::extent(sp.lim$lonmin, sp.lim$lonmax, sp.lim$latmin, sp.lim$latmax))
+    bathy_crop <- terra::crop(bathy, terra::ext(sp.lim$lonmin, sp.lim$lonmax, sp.lim$latmin, sp.lim$latmax))
     L.bathy <- calc.bathy(
       mmd,
       bathy_crop,
@@ -330,10 +339,10 @@ if (!is.null(bathy) && !is.null(mmd) && nrow(mmd) > 0) {
       sens.err = 5,
       lik.type = "max"
     )
-    saveRDS(L.bathy, bathy_rds)
+    save_rast_rds(L.bathy, bathy_rds)
   } else {
     message("Loading cached L.bathy: ", bathy_rds)
-    L.bathy <- readRDS(bathy_rds)
+    L.bathy <- load_rast_rds(bathy_rds)
   }
 } else {
   L.bathy <- NULL
@@ -414,10 +423,10 @@ if (length(glorys_files) > 0 && !is.null(pdt) && nrow(pdt) > 0) {
       ohc.dir = glorys.dir,
       dateVec = dateVec
     )
-    saveRDS(L.ohc, ohc_rds)
+    save_rast_rds(L.ohc, ohc_rds)
   } else {
     message("Loading cached L.ohc: ", ohc_rds)
-    L.ohc <- readRDS(ohc_rds)
+    L.ohc <- load_rast_rds(ohc_rds)
   }
 } else {
   L.ohc <- NULL
@@ -435,10 +444,10 @@ if (length(glorys_files) > 0 && !is.null(pdt) && nrow(pdt) > 0) {
       dateVec = dateVec,
       use.se = TRUE
     )
-    saveRDS(L.glorys, glorys_prof_rds)
+    save_rast_rds(L.glorys, glorys_prof_rds)
   } else {
     message("Loading cached L.glorys: ", glorys_prof_rds)
-    L.glorys <- readRDS(glorys_prof_rds)
+    L.glorys <- load_rast_rds(glorys_prof_rds)
   }
 } else {
   L.glorys <- NULL
@@ -450,13 +459,13 @@ if (!is.null(L.glorys) && !is.null(L.ohc)) {
   if (!file.exists(pdt_rds)) {
     message("Combining L.glorys and L.ohc into L.pdt via make.L.pdt...")
     pdt_ras <- list(glorys = L.glorys, ohc = L.ohc)
-    pdt_res_idx <- which.min(lapply(pdt_ras, function(x) raster::res(x)[1]))
+    pdt_res_idx <- which.min(lapply(pdt_ras, function(x) terra::res(x)[1]))
     pdt_res <- resample.grid(pdt_ras, pdt_ras[[pdt_res_idx]])
     L.pdt <- make.L.pdt(pdt_res$L.rasters, dateVec = dateVec)
-    saveRDS(L.pdt, pdt_rds)
+    save_rast_rds(L.pdt, pdt_rds)
   } else {
     message("Loading cached L.pdt: ", pdt_rds)
-    L.pdt <- readRDS(pdt_rds)
+    L.pdt <- load_rast_rds(pdt_rds)
   }
 } else {
   L.pdt <- NULL
@@ -474,10 +483,10 @@ if (length(glorys_files) > 0 && !is.null(tag.sst) && nrow(tag.sst) > 0) {
       dateVec = dateVec,
       sens.err = 1
     )
-    saveRDS(L.sst, sst_rds)
+    save_rast_rds(L.sst, sst_rds)
   } else {
     message("Loading cached L.sst: ", sst_rds)
-    L.sst <- readRDS(sst_rds)
+    L.sst <- load_rast_rds(sst_rds)
   }
 } else {
   L.sst <- NULL
@@ -489,7 +498,7 @@ L.rasters <- L.rasters[!sapply(L.rasters, is.null)]
 message("Combining observation likelihoods: ", paste(names(L.rasters), collapse = ", "))
 
 # Resample to common finest grid resolution
-resamp.idx <- which.min(lapply(L.rasters, function(x) raster::res(x)[1]))
+resamp.idx <- which.min(lapply(L.rasters, function(x) terra::res(x)[1]))
 L.res <- resample.grid(L.rasters, L.rasters[[resamp.idx]])
 
 # Mask light likelihood over land using finest available ocean mask (0.083 deg GLORYS if available, else bathy)
@@ -499,12 +508,13 @@ if ("light" %in% names(L.res$L.rasters)) {
   if (length(ocean_src) > 0) {
     ocean_mask <- max(L.res$L.rasters[[ocean_src[1]]], na.rm = TRUE) > 0
   } else if (!is.null(bathy)) {
-    b_res <- raster::resample(bathy, L.res$L.rasters$light)
+    b_res <- if (terra::compareGeom(bathy, L.res$L.rasters$light, stopOnError = FALSE)) bathy else terra::resample(bathy, L.res$L.rasters$light)
     ocean_mask <- !is.na(b_res) & (b_res < 0)
   } else {
     ocean_mask <- 1
   }
-  light_active <- which(raster::cellStats(L.res$L.rasters$light, "max", na.rm = TRUE) > 0)
+  light_max <- terra::global(L.res$L.rasters$light, "max", na.rm = TRUE)[, 1]
+  light_active <- which(is.finite(light_max) & light_max > 0)
   for (ii in light_active) {
     lyr <- L.res$L.rasters$light[[ii]]
     lyr[is.na(lyr) | lyr < 1e-3] <- 1e-3
@@ -601,6 +611,7 @@ combos <- combos[sapply(combos, function(x) all(x %in% names(L.res$L.rasters)))]
 
 # 7.3 Run Each Combination
 model_results <- list()
+model_fits <- list()
 comp_rows <- list()
 
 for (m_name in names(combos)) {
@@ -634,26 +645,22 @@ for (m_name in names(combos)) {
   # Most probable track
   tr <- calc.track(s, g = L.res$g, dateVec = dateVec, iniloc = iniloc, method = "mean")
   tr$Date <- as.POSIXct(dateVec, tz = "UTC")
+  tr$model <- m_name
   
   # Save individual model outputs
+  fit_obj <- list(model = m_name, likelihoods = sel_liks, pars = c(sigmas, pb), s = s, tr = tr, aic = aic, nll = nllf)
   fit_file <- file.path(out_dir, paste0(instrument_id, "_", m_name, "_fixed_fit.rds"))
   track_file <- file.path(out_dir, paste0(instrument_id, "_", m_name, "_fixed_track.csv"))
-  saveRDS(list(model = m_name, pars = c(sigmas, pb), s = s, tr = tr, aic = aic, nll = nllf), fit_file)
+  saveRDS(fit_obj, fit_file)
   write.csv(tr, track_file, row.names = FALSE)
-
-  # Diagnostic PNG
-  plot_file <- file.path(out_dir, paste0(instrument_id, "_", m_name, "_fixed_plotHMM.png"))
-  png(plot_file, width = 8, height = 9, units = "in", res = 300)
-  plotHMM(distr = s, track = tr, dateVec = dateVec, ptt = paste(instrument_id, m_name, "fixed"), behav.pts = TRUE, save.plot = FALSE)
-  dev.off()
   
   # Endpoint error (distance to popoff in km)
   last_idx <- nrow(tr)
-  end_err_km <- raster::pointDistance(
-    c(tr$lon[last_idx], tr$lat[last_idx]),
-    c(iniloc$lon[2], iniloc$lat[2]),
+  end_err_km <- terra::distance(
+    matrix(c(tr$lon[last_idx], tr$lat[last_idx]), ncol = 2),
+    matrix(c(iniloc$lon[2], iniloc$lat[2]), ncol = 2),
     lonlat = TRUE
-  ) / 1000
+  )[1] / 1000
   
   comp_rows[[m_name]] <- data.frame(
     model = m_name,
@@ -668,30 +675,34 @@ for (m_name in names(combos)) {
     stringsAsFactors = FALSE
   )
   
-  tr$model <- m_name
+  model_fits[[m_name]] <- fit_obj
   model_results[[m_name]] <- tr
 }
-# 7.3 Model Comparison Summary Table
+
+# 7.4 Model Comparison Summary Table
 comp_table <- do.call(rbind, comp_rows)
 comp_table <- comp_table[order(comp_table$aic), ]
 write.csv(comp_table, file.path(out_dir, paste0(instrument_id, "_fixed_model_comparison.csv")), row.names = FALSE)
 message("\nModel Comparison Table:")
 print(comp_table)
 
-# 8. Multi-Model Track Comparison Plot -----------------------------------------
+# 8. Post-Run Plotting for All Models ------------------------------------------
 library(ggplot2)
+library(sf)
 
-world_map <- map_data("world")
+world_sf <- sf::st_as_sf(maps::map("world", plot = FALSE, fill = TRUE))
 all_tracks <- do.call(rbind, model_results)
 
+# 8.1 Multi-Model Track Comparison Plot
 p_comp <- ggplot() +
-  geom_polygon(data = world_map, aes(x = long, y = lat, group = group), fill = "grey80", color = "grey60") +
-  coord_fixed(xlim = c(sp.lim$lonmin, sp.lim$lonmax), ylim = c(sp.lim$latmin, sp.lim$latmax)) +
+  geom_sf(data = world_sf, fill = "grey80", color = "grey50", linewidth = 0.3) +
   geom_path(data = all_tracks, aes(x = lon, y = lat, color = model), linewidth = 0.9, alpha = 0.85) +
-  geom_point(data = all_tracks, aes(x = lon, y = lat), fill = "black", color = "black", shape = 19, size = .2) +
-  geom_point(data = iniloc[1, ], aes(x = lon, y = lat), fill = "green", color = "black", shape = 21, size = 4) +
-  geom_point(data = iniloc[2, ], aes(x = lon, y = lat), fill = "red", color = "black", shape = 21, size = 4) +
-  theme_bw() +
+  geom_point(data = all_tracks, aes(x = lon, y = lat), fill = "black", color = "black", shape = 19, size = 0.4) +
+  geom_point(data = iniloc[1, ], aes(x = lon, y = lat), fill = "green", color = "black", shape = 24, size = 4) +
+  geom_point(data = iniloc[2, ], aes(x = lon, y = lat), fill = "red", color = "black", shape = 25, size = 4) +
+  coord_sf(xlim = c(sp.lim$lonmin, sp.lim$lonmax), ylim = c(sp.lim$latmin, sp.lim$latmax), expand = FALSE) +
+  theme_bw(base_size = 13) +
+  theme(axis.text = element_text(size = 11, color = "black")) +
   labs(
     title = paste("Track Comparison across Likelihood Combinations - Tag", instrument_id),
     subtitle = "Green = Release, Red = Popoff",
@@ -707,35 +718,57 @@ comp_plot_file <- file.path(out_dir, paste0(instrument_id, "_fixed_track_compari
 ggsave(comp_plot_file, plot = p_comp, width = 10, height = 8, dpi = 300)
 message("Saved comparison track map to: ", comp_plot_file)
 
-# 8.2 Detailed ggplot Map with Raw Light Locations & Endpoints
-library(ggplot2)
+# 8.2 Loop Through Model Results to Plot plotHMM & Detailed Track Maps
+track_plots <- list()
+for (m_name in names(model_fits)) {
+  fit_m <- model_fits[[m_name]]
+  tr_m <- fit_m$tr
+  tr_m$Month <- factor(format(tr_m$Date, "%b %Y"), levels = unique(format(tr_m$Date, "%b %Y")))
+  sel_liks_str <- paste(fit_m$likelihoods, collapse = " + ")
 
-world_map <- map_data("world")
-tr$Date <- as.POSIXct(dateVec, tz = "UTC")
+  # Base HMMoce diagnostic plot
+  plot_file <- file.path(out_dir, paste0(instrument_id, "_", m_name, "_fixed_plotHMM.png"))
+  png(plot_file, width = 8, height = 9, units = "in", res = 300)
+  plotHMM(distr = fit_m$s, track = tr_m, dateVec = dateVec, ptt = paste(instrument_id, m_name, "fixed"), behav.pts = TRUE, save.plot = FALSE)
+  dev.off()
 
-p_track <- ggplot() +
-  geom_polygon(data = world_map, aes(x = long, y = lat, group = group), fill = "grey75", color = "grey50") +
-  coord_fixed(xlim = c(sp.lim$lonmin, sp.lim$lonmax), ylim = c(sp.lim$latmin, sp.lim$latmax)) +
-  theme_bw() +
-  labs(title = paste("HMMoce Estimated Track - Cobia", instrument_id), x = "Longitude", y = "Latitude")
+  # Detailed ggplot sf map
+  p_track <- ggplot() +
+    geom_sf(data = world_sf, fill = "grey80", color = "grey50", linewidth = 0.3)
 
-# Add raw light geolocations if available
-if (!is.null(lightloc) && nrow(lightloc) > 0) {
+  if (!is.null(lightloc) && nrow(lightloc) > 0) {
+    p_track <- p_track +
+      geom_point(data = lightloc, aes(x = Longitude, y = Latitude), color = "orange", alpha = 0.6, size = 1.4)
+  }
+
   p_track <- p_track +
-    geom_point(data = lightloc, aes(x = Longitude, y = Latitude), color = "orange", alpha = 0.4, size = 1.2)
+    geom_path(data = tr_m, aes(x = lon, y = lat), color = "grey35", linewidth = 0.8) +
+    geom_point(
+      data = tr_m,
+      aes(x = lon, y = lat, fill = Month),
+      shape = 21, color = "black", stroke = 0.35, size = 3
+    ) +
+    scale_fill_viridis_d(option = "turbo", name = "Month", begin = 0.1, end = 0.9) +
+    geom_point(data = iniloc[1, ], aes(x = lon, y = lat), fill = "green", color = "black", shape = 24, size = 4) +
+    geom_point(data = iniloc[2, ], aes(x = lon, y = lat), fill = "red", color = "black", shape = 25, size = 4) +
+    coord_sf(xlim = c(sp.lim$lonmin, sp.lim$lonmax), ylim = c(sp.lim$latmin, sp.lim$latmax), expand = FALSE) +
+    theme_bw(base_size = 13) +
+    theme(
+      axis.text = element_text(size = 11, color = "black"),
+      plot.subtitle = element_text(size = 11, face = "italic")
+    ) +
+    labs(
+      title = paste("HMMoce Estimated Track - Cobia", instrument_id),
+      subtitle = paste0("Model: ", m_name, " (", sel_liks_str, ")"),
+      x = "Longitude", y = "Latitude"
+    )
+
+  track_plot_file <- file.path(out_dir, paste0(instrument_id, "_", m_name, "_track_map.png"))
+  ggsave(track_plot_file, plot = p_track, width = 9, height = 7, dpi = 300)
+  track_plots[[m_name]] <- p_track
+  message("Saved plots for model: ", m_name)
 }
-
-# Add estimated trajectory
-p_track <- p_track +
-  geom_path(data = tr, aes(x = lon, y = lat), color = "darkblue", linewidth = 0.8) +
-  geom_point(data = tr, aes(x = lon, y = lat, color = as.numeric(Date)), size = 2) +
-  scale_color_viridis_c(name = "Date", breaks = as.numeric(pretty(tr$Date, n = 5)), labels = function(x) format(as.Date(as.POSIXct(x, origin = "1970-01-01")), "%b %d")) +
-  geom_point(data = iniloc[1, ], aes(x = lon, y = lat), fill = "green", color = "black", shape = 21, size = 4) +
-  geom_point(data = iniloc[2, ], aes(x = lon, y = lat), fill = "red", color = "black", shape = 21, size = 4)
-
-ggsave(file.path(out_dir, paste0(instrument_id, "_track_map.png")), plot = p_track, width = 9, height = 7, dpi = 300)
-message("Saved track map to: ", file.path(out_dir, paste0(instrument_id, "_track_map.png")))
-print(p_track)
+print(track_plots[[comp_table$model[1]]])
 
 if (use_gdrive_api) push_gdrive_outputs(instrument_id, out_dir)
 

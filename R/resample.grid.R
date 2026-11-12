@@ -18,40 +18,34 @@
 resample.grid <- function(L.rasters, L.res, mle.res=0.75, bound=NULL){
   
   start.t <- Sys.time()
+  L.res <- if (inherits(L.res, "SpatRaster")) L.res[[1]] else terra::rast(L.res)[[1]]
   
-  L.rasters.old <- L.rasters
-  
-  for (i in 1:length(L.rasters)){
-    r <- L.rasters[[i]]
-    
-    if (i == 1){
-      resol <- raster::res(r)[1]
-    } else{
-      resol <- c(resol, raster::res(r)[1])
-    }
-    
+  for (i in seq_along(L.rasters)){
+    r <- if (inherits(L.rasters[[i]], "SpatRaster")) L.rasters[[i]] else terra::rast(L.rasters[[i]])
     t <- Sys.time()
-    r <- raster::resample(r, L.res)
+    if (!terra::compareGeom(r, L.res, stopOnError = FALSE)) {
+      r <- terra::resample(r, L.res)
+    }
     print(Sys.time() - t)
-    #r[r < 0] <- NA
     L.rasters[[i]] <- r
-    
   }
   
   if(!is.null(bound)){
-    if(class(bound) != 'Extent') stop('Error: input bound is not of class raster::extent.')
-    for (ii in 1:length(L.rasters)) L.rasters[[ii]] <- raster::crop(L.rasters[[ii]], bound)
-    #L.rasters <- lapply(L.rasters, FUN=function(x) raster::crop(L.rasters[[x]], bound))
+    b_ext <- terra::ext(bound)
+    for (ii in seq_along(L.rasters)) L.rasters[[ii]] <- terra::crop(L.rasters[[ii]], b_ext)
   }
   
-  L.mle.res <- L.rasters[1][[1]]
-  agg <- round(mle.res / raster::res(L.mle.res)[1])
-  is.odd <- function(x) x %% 2 != 0
-  if(!is.odd(agg)) agg <- agg + 1
-  if(agg != 1) L.mle.res <- raster::aggregate(L.mle.res, agg)
+  L.mle.res <- L.rasters[[1]]
+  if (!is.null(mle.res) && is.finite(mle.res)) {
+    agg <- round(mle.res / terra::res(L.mle.res)[1])
+    if (agg %% 2 == 0) agg <- agg + 1
+    if (agg > 1) L.mle.res <- terra::aggregate(L.mle.res, fact = agg)
+    g.mle <- setup.grid.raster(L.mle.res)
+  } else {
+    g.mle <- NULL
+  }
   
   g <- setup.grid.raster(L.rasters[[1]])
-  g.mle <- setup.grid.raster(L.mle.res)
   
   print(paste('Raster resample took ', Sys.time() - start.t, '.'))
   

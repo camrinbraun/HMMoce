@@ -49,32 +49,71 @@ hmm.filter <- function(g, L, K, P, m, maskL = FALSE, bound.thr = 0.1, minBounds 
   phi[1,1,,]  <- L[1,,] # first position is known
   pred[1,1,,] <- L[1,,] # first position is known
   
+  # Build separable 1D Toeplitz convolution operators when K[[ii]] is low-rank (rank 1 or 2)
+  build_toeplitz_1d <- function(n, kvec) {
+    lk <- length(kvec)
+    ctr <- floor(lk / 2) + 1L
+    idx <- outer(seq_len(n), seq_len(n), "-") + ctr
+    valid <- idx >= 1L & idx <= lk
+    Tmat <- matrix(0, n, n)
+    Tmat[valid] <- kvec[idx[valid]]
+    Tmat
+  }
+  
+  sep_ops <- vector("list", m)
   for (ii in 1:m){
-   
-    # convert movement kernels from matrix to cimg for convolution
-    K[[ii]] <- imager::as.cimg(K[[ii]])
-
+    K_mat <- as.matrix(K[[ii]])
+    sv <- svd(K_mat)
+    # Check if rank-1 or rank-2 decomposition captures >= 99.99% of kernel energy
+    r_use <- if (length(sv$d) == 1L || sv$d[2] < 1e-4 * sv$d[1]) {
+      1L
+    } else if (length(sv$d) == 2L || sv$d[3] < 1e-3 * sv$d[1]) {
+      2L
+    } else {
+      0L
+    }
+    if (r_use > 0L) {
+      ops_r <- vector("list", r_use)
+      for (rk in seq_len(r_use)) {
+        u_vec <- sqrt(sv$d[rk]) * sv$u[, rk]
+        v_vec <- sqrt(sv$d[rk]) * sv$v[, rk]
+        ops_r[[rk]] <- list(
+          Tv = build_toeplitz_1d(col, v_vec),
+          Tu_t = t(build_toeplitz_1d(row, u_vec))
+        )
+      }
+      sep_ops[[ii]] <- ops_r
+    } else {
+      K[[ii]] <- imager::as.cimg(K_mat)
+      sep_ops[[ii]] <- NULL
+    }
   }
 
   psi <- rep(0, T - 1) # sum of the probability of states at each step
 
   ## create empty lists for upcoming vars
-  p <- list(); q <- list(); post <- list()
+  q <- vector("list", m); post <- vector("list", m)
   
   # Start filter iterations
   for(t in 2:T){
     
     for (ii in 1:m){
-      
       # convolve previous day's likelihood with movement kernels
-      p[[ii]] = imager::as.cimg(t(phi[ii, t-1,,]))
-      #p1 = imager::as.cimg(t(phi[1, t-1,,]))
-      #p2 = imager::as.cimg(t(phi[2, t-1,,]))
-      q[[ii]] = t(as.matrix(imager::convolve(p[[ii]], K[[ii]])))
-      #q1 = imager::convolve(p1, K1)
-      #q2 = imager::convolve(p2, K2)
-      #q1 = t(as.matrix(q1))
-      #q2 = t(as.matrix(q2))
+      M_prev <- phi[ii, t-1, , ]
+      if (!is.null(sep_ops[[ii]])) {
+        ops_r <- sep_ops[[ii]]
+        q_mat <- ops_r[[1]]$Tv %*% M_prev %*% ops_r[[1]]$Tu_t
+        if (length(ops_r) > 1L) {
+          for (rk in 2:length(ops_r)) {
+            q_mat <- q_mat + (ops_r[[rk]]$Tv %*% M_prev %*% ops_r[[rk]]$Tu_t)
+          }
+        }
+        q_mat[q_mat < 0] <- 0
+        q[[ii]] <- q_mat
+      } else {
+        p_img <- imager::as.cimg(t(M_prev))
+        q[[ii]] <- t(as.matrix(imager::convolve(p_img, K[[ii]])))
+      }
     }
       
     # multiply by transition probability 

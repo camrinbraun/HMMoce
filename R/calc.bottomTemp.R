@@ -69,24 +69,22 @@ calc.bottomTemp <- function(tag.bt, filename, bt.dir, dateVec, focalDim = NULL, 
     
     dat <- RNetCDF::var.get.nc(nc, nameidx)
     
-    # calc sd of bt
-    # focal calc on mean temp and write to sd var
-    r <- raster::flip(raster::raster(t(dat), xmn=min(lon), xmx=max(lon),
-                                     ymn=min(lat), ymx=max(lat)), 2)
+    # calc sd of bt via terra
+    r <- terra::flip(terra::rast(t(dat), extent = terra::ext(min(lon), max(lon), min(lat), max(lat)), crs = "EPSG:4326"), direction = "vertical")
     
-    if(round(raster::res(r)[1], 2) < 0.1){
-      aggFact <- round(0.1 / round(raster::res(r)[1], 2), 0)
-      if(aggFact != 1) r <- raster::aggregate(r, fact = aggFact)
+    if(round(terra::res(r)[1], 2) < 0.1){
+      aggFact <- round(0.1 / round(terra::res(r)[1], 2), 0)
+      if(aggFact != 1) r <- terra::aggregate(r, fact = aggFact)
     } 
     
     if(is.null(focalDim)){
-      focalDim <- round(0.25 / raster::res(r)[1], 0)
+      focalDim <- round(0.25 / terra::res(r)[1], 0)
       if(focalDim %% 2 == 0) focalDim <- focalDim - 1
     }
     
-    sdx = raster::focal(r, w = matrix(1, nrow = focalDim, ncol = focalDim), fun = function(x) stats::sd(x, na.rm = TRUE), pad = TRUE)
-    sdx = t(raster::as.matrix(raster::flip(sdx, 2)))
-    dat <- base::t(raster::as.matrix(raster::flip(r, 2)))
+    sd_r <- terra::focal(r, w = focalDim, fun = "sd", na.rm = TRUE)
+    sdx  <- t(terra::as.matrix(terra::flip(sd_r, direction = "vertical"), wide = TRUE))
+    dat  <- t(terra::as.matrix(terra::flip(r, direction = "vertical"), wide = TRUE))
     
     # compare bt to env grid
     lik.bt <- likint3(dat, sdx, bt.i[1], bt.i[2])
@@ -98,14 +96,8 @@ calc.bottomTemp <- function(tag.bt, filename, bt.dir, dateVec, focalDim = NULL, 
   print(paste('Making final likelihood raster...'))
   
   crs <- "+proj=longlat +datum=WGS84 +ellps=WGS84"
-  lon.agg <- seq(raster::extent(r)[1], raster::extent(r)[2], length.out=dim(r)[2])
-  lat.agg <- seq(raster::extent(r)[3], raster::extent(r)[4], length.out=dim(r)[1])
-  list.bt <- list(x = lon.agg, y = lat.agg, z = L.bt)
-  ex <- raster::extent(list.bt)
-  L.bt <- raster::brick(list.bt$z, xmn=ex[1], xmx=ex[2], ymn=ex[3], ymx=ex[4], transpose=TRUE, crs)
-  L.bt <- raster::flip(L.bt, direction = 'y')
-  
-  L.bt[L.bt < 0] <- 0
+  L.bt[is.na(L.bt) | L.bt < 0] <- 0
+  L.bt <- terra::flip(terra::rast(aperm(L.bt, c(2, 1, 3)), extent = terra::ext(r), crs = crs), direction = "vertical")
   names(L.bt) <- as.character(dateVec)
   
   t1 <- Sys.time()

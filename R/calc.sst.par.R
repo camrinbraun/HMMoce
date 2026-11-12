@@ -46,12 +46,7 @@ calc.sst.par <- function(tag.sst, filename, sst.dir, dateVec, focalDim = NULL, s
   T <- length(dateVec)
 
   # GET EVERYTHING SETUP BEFORE PARALLEL
-  # open day's sst data
-  #nc <- RNetCDF::open.nc(dir(sst.dir, full.names = T)[1])
   nc <- RNetCDF::open.nc(paste(sst.dir, filename, '_', as.Date(dateVec[min(tag.sst$dateVec)]), '.nc', sep=''))
-  
-  ## first successful iteration, define additional vars
-  # get correct name in sst data
   ncnames = NULL
   nmax <- RNetCDF::file.inq.nc(nc)$nvars - 1
   for(ii in 0:nmax) ncnames[ii + 1] <- RNetCDF::var.inq.nc(nc, ii)$name
@@ -59,107 +54,73 @@ calc.sst.par <- function(tag.sst, filename, sst.dir, dateVec, focalDim = NULL, s
   
   lon <- c(RNetCDF::var.get.nc(nc, 'longitude'))
   lat <- c(RNetCDF::var.get.nc(nc, 'latitude'))
+  dat <- RNetCDF::var.get.nc(nc, nameidx)
   
-  # result will be array of likelihood surfaces
-  L.sst <- array(0, dim = c(length(lon), length(lat), T))
+  r <- terra::flip(terra::rast(t(dat), extent = terra::ext(min(lon), max(lon), min(lat), max(lat)), crs = "EPSG:4326"), direction = "vertical")
   
-  ## get grid
-  dat <- RNetCDF::var.get.nc(nc, nameidx) # for OI SST
-  
-  # calc sd of SST
-  # focal calc on mean temp and write to sd var
-  r <- raster::flip(raster::raster(t(dat), xmn=min(lon), xmx=max(lon),
-                                   ymn=min(lat), ymx=max(lat)), 2)
-  
-  ## deal with focalDim if NULL
   if (is.null(focalDim)){
-    focalDim <- round(0.25 / raster::res(r)[1], 0)
+    focalDim <- round(0.25 / terra::res(r)[1], 0)
     if (focalDim %% 2 == 0) focalDim <- focalDim - 1
-    if (focalDim == 1) focalDim <- 3 ## if this equals 1, weird things happen
+    if (focalDim == 1) focalDim <- 3
   }
   
-  ## aggregate hi-res rasters 
-  if(auto.aggr & round(raster::res(r)[1], 2) < 0.1){
-    print('Raster is very high resolution. Automatically coarsening using raster::aggregate. If you do not want this behavior, set auto.aggr = FALSE')
-    aggFact <- round(0.1 / round(raster::res(r)[1], 2), 0)
-    if(aggFact > 1) r <- raster::aggregate(r, fact = aggFact)
-    L.sst <- array(0, dim = c(dim(r)[2], dim(r)[1], T))
+  if(auto.aggr & round(terra::res(r)[1], 2) < 0.1){
+    print('Raster is very high resolution. Automatically coarsening using terra::aggregate. If you do not want this behavior, set auto.aggr = FALSE')
+    aggFact <- round(0.1 / round(terra::res(r)[1], 2), 0)
+    if(aggFact > 1) r <- terra::aggregate(r, fact = aggFact)
   }
   
-  # get lat/lon for raster creation later
-  lon.agg <- seq(raster::extent(r)[1], raster::extent(r)[2], length.out=dim(r)[2])
-  lat.agg <- seq(raster::extent(r)[3], raster::extent(r)[4], length.out=dim(r)[1])
-  
-  ## END of SETUP RUN
+  tmpl_nr  <- terra::nrow(r)
+  tmpl_nc  <- terra::ncol(r)
+  tmpl_ext <- as.vector(terra::ext(r))
+  L_arr <- array(0, dim = c(tmpl_nr, tmpl_nc, T))
   
   print('Processing in parallel... ')
   
   cl = parallel::makeCluster(ncores)
   doParallel::registerDoParallel(cl, cores = ncores)
+  on.exit(try(parallel::stopCluster(cl), silent = TRUE), add = TRUE)
   
-  ans = foreach::foreach(i = 1:T, .export = 'likint3', .packages = c('raster')) %dopar%{
-      
+  ans = foreach::foreach(i = 1:T, .export = 'likint3', .packages = c('terra')) %dopar%{
     tag.sst.i <- tag.sst[which(tag.sst$dateVec == i),]
-    if (nrow(tag.sst.i) == 0) return(NA)
-    sst.i <- c(tag.sst.i$minT * (1 - sens.err / 100), tag.sst.i$maxT * (1 + sens.err / 100)) # sensor error
+    if (nrow(tag.sst.i) == 0) return(NULL)
+    sst.i <- c(tag.sst.i$minT * (1 - sens.err / 100), tag.sst.i$maxT * (1 + sens.err / 100))
     
-    # open day's sst data
-    nc <- RNetCDF::open.nc(paste(sst.dir, filename, '_', as.Date(dateVec[i]), '.nc', sep='')) #add lat lon in filename '.nc', sep=''))
-    dat <- RNetCDF::var.get.nc(nc, nameidx) # for OI SST
+    nc <- RNetCDF::open.nc(paste(sst.dir, filename, '_', as.Date(dateVec[i]), '.nc', sep=''))
+    dat <- RNetCDF::var.get.nc(nc, nameidx)
     
-    # calc sd of SST
-    # focal calc on mean temp and write to sd var
-    r = raster::flip(raster::raster(t(dat), xmn=min(lon), xmx=max(lon),
-                                    ymn=min(lat), ymx=max(lat)), 2)
-    
-    # check for coarse enough resolution that our calculations wont take all day
-    if(auto.aggr & round(raster::res(r)[1], 2) < 0.1){
-      aggFact <- round(0.1 / round(raster::res(r)[1], 2), 0)
-      if(aggFact > 1) r <- raster::aggregate(r, fact = aggFact)
+    r <- terra::flip(terra::rast(t(dat), extent = terra::ext(min(lon), max(lon), min(lat), max(lat)), crs = "EPSG:4326"), direction = "vertical")
+    if(auto.aggr & round(terra::res(r)[1], 2) < 0.1){
+      aggFact <- round(0.1 / round(terra::res(r)[1], 2), 0)
+      if(aggFact > 1) r <- terra::aggregate(r, fact = aggFact)
     }
     
-    # calculate sd from sst grid using focal()
-    sdx = raster::focal(r, w = matrix(1, nrow = focalDim, ncol = focalDim), fun = function(x) stats::sd(x, na.rm = T), pad = TRUE)
-    sdx = t(raster::as.matrix(raster::flip(sdx, 2)))
+    sd_r <- terra::focal(r, w = focalDim, fun = "sd", na.rm = TRUE)
+    dat  <- terra::as.matrix(r, wide = TRUE)
+    sdx  <- terra::as.matrix(sd_r, wide = TRUE)
     
-    # re-calc dat after raster::aggregate, if it happened
-    dat <- base::t(raster::as.matrix(raster::flip(r, 2)))
-    
-    # compare sst to that day's tag-based ohc
     lik.sst <- likint3(dat, sdx, sst.i[1], sst.i[2])
-    
-    lik.sst 
-    
+    lik.sst
   }
   
   parallel::stopCluster(cl)
+  on.exit(NULL)
   
-  #lapply
-  lik.sst <- lapply(ans, function(x) {
-    if (is.null(x) || (length(x) == 1 && is.na(x))) return(NA)
-    m <- max(x, na.rm = TRUE)
-    if (is.infinite(m) || is.na(m) || m == 0) return(matrix(0, nrow = nrow(x), ncol = ncol(x)))
-    x / m
-  })
-
   for (i in 1:T){
-    if (length(lik.sst[[i]]) == 1 && is.na(lik.sst[[i]])) {
-      L.sst[,,i] <- 0
-    } else {
-      L.sst[,,i] <- lik.sst[[i]]
+    if (is.matrix(ans[[i]])) {
+      m <- suppressWarnings(max(ans[[i]], na.rm = TRUE))
+      if (is.finite(m) && m > 0) {
+        slice <- ans[[i]] / m
+        slice[is.na(slice) | slice < 0] <- 0
+        L_arr[,,i] <- slice
+      }
     }
   }
   
   print(paste('Making final likelihood raster...'))
   
   crs <- "+proj=longlat +datum=WGS84 +ellps=WGS84"
-  list.sst <- list(x = lon.agg, y = lat.agg, z = L.sst)
-  ex <- raster::extent(list.sst)
-  L.sst <- raster::brick(list.sst$z, xmn=ex[1], xmx=ex[2], ymn=ex[3], ymx=ex[4], transpose=T, crs)
-  L.sst <- raster::flip(L.sst, direction = 'y')
-  
-  L.sst[L.sst < 0] <- 0
-  
+  L.sst <- terra::rast(L_arr, extent = terra::ext(tmpl_ext), crs = crs)
   names(L.sst) <- as.character(dateVec)
   
   t1 <- Sys.time()

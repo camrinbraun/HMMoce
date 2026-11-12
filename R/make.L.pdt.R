@@ -16,51 +16,39 @@
 #'   
 #' @author Martin C. Arostegui
 
-make.L.pdt <- function(ras.list,dateVec){
+make.L.pdt <- function(ras.list, dateVec){
+  r_tmpl <- if (inherits(ras.list[[1]], "SpatRaster")) ras.list[[1]] else terra::rast(ras.list[[1]])
+  nr <- terra::nrow(r_tmpl)
+  nc <- terra::ncol(r_tmpl)
+  T_len <- length(dateVec)
   
-  ## generate blank results likelihood
-  L <- ras.list[[1]] * 0
-  L[is.na(L)] <- 0
+  arr_list <- lapply(ras.list, function(r) {
+    sr <- if (inherits(r, "SpatRaster")) r else terra::rast(r)
+    terra::as.array(sr)
+  })
   
-  ## COMBINE THE LIKELIHOOD LAYERS
-  ## for each day:
-  for (i in 1:length(dateVec)){
-    
-    #print(i)
-    
-    ## get relevant likelihoods across the list
-    for (bb in 1:length(ras.list)){
-      if (bb == 1){
-        s <- raster::stack(ras.list[[bb]][[i]])
-      } else{
-        s <- raster::stack(s, ras.list[[bb]][[i]])
+  L_arr <- array(0, dim = c(nr, nc, T_len))
+  for (i in seq_len(T_len)){
+    active_mats <- list()
+    for (bb in seq_along(arr_list)){
+      mat <- arr_list[[bb]][,,i]
+      mv <- suppressWarnings(max(mat, na.rm = TRUE))
+      if (is.finite(mv) && mv > 0) {
+        mat[is.na(mat)] <- 0
+        active_mats[[length(active_mats) + 1L]] <- mat / mv
       }
     }
-    
-    ## check for layers with all NA or all <= 0
-    sum_NA <- raster::cellStats(!is.na(s), sum, na.rm = TRUE) == 0
-    max_vals <- suppressWarnings(raster::cellStats(s, 'max', na.rm = TRUE))
-    empty_layer <- sum_NA | is.na(max_vals) | is.infinite(max_vals) | (max_vals <= 0)
-    
-    ## if all layers are empty, skip to next day
-    if (all(empty_layer)){
-      next
-    } else if (any(empty_layer)){
-      s <- s[[-which(empty_layer)]]
+    if (length(active_mats) == 0L) next
+    s_sum <- Reduce(`+`, active_mats)
+    m_sum <- suppressWarnings(max(s_sum, na.rm = TRUE))
+    if (is.finite(m_sum) && m_sum > 0) {
+      L_arr[,,i] <- s_sum / m_sum
     }
-    
-    ## sum & normalize whatever layers remain
-    if (raster::nlayers(s) == 1){
-      L[[i]] <- s / raster::cellStats(s, 'max', na.rm = TRUE)
-    } else{
-      s_sum <- sum(s, na.rm = TRUE)
-      L[[i]] <- s_sum / raster::cellStats(s_sum, 'max', na.rm = TRUE)
-    }
-    
   }
-
-  print('Finishing make.L.pdt...', sep='')
   
+  L <- terra::rast(L_arr, extent = terra::ext(r_tmpl), crs = terra::crs(r_tmpl))
+  names(L) <- as.character(dateVec)
+  print('Finishing make.L.pdt...', sep='')
   return(L)
 }
 

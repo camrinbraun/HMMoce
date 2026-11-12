@@ -21,96 +21,90 @@
 
 make.L <- function(ras.list, iniloc, dateVec, maxDepth = NULL, bathy = NULL, known.locs = NULL){
   
-  ## generate blank results likelihood
-  L <- ras.list[[1]] * 0
-  L[is.na(L)] <- 0
+  r_tmpl <- if (inherits(ras.list[[1]], "SpatRaster")) ras.list[[1]] else terra::rast(ras.list[[1]])
+  nr <- terra::nrow(r_tmpl)
+  nc <- terra::ncol(r_tmpl)
+  T_len <- length(dateVec)
   
-  # check bathy mask requirements (land mask always applied if bathy provided; depth mask if maxDepth > 0)
+  # Convert all input rasters to in-memory 3D arrays (nrow x ncol x T) once
+  arr_list <- lapply(ras.list, function(r) {
+    sr <- if (inherits(r, "SpatRaster")) r else terra::rast(r)
+    terra::as.array(sr)
+  })
+  n_ras <- length(arr_list)
+  
+  # Prepare 2D bathymetry matrix once (skip resample if geometries already match)
+  bathy_mat <- NULL
   if (!is.null(bathy)) {
-    if (!is.null(maxDepth) && any(maxDepth > 0) && length(maxDepth) != length(dateVec)){
+    if (!is.null(maxDepth) && any(maxDepth > 0) && length(maxDepth) != T_len){
       stop('Error: Vector of daily maximum depths is not same length at date vector. Ensure mmd was zero-padded for days with NA data.')
     }
-    
-    bathy <- raster::readAll(bathy)
-    ## convert negative ocean depths to positive and set land (<= 0 m depth) to NA
-    if (raster::cellStats(bathy, 'min', na.rm = TRUE) < 0){
-      bathy <- bathy * -1
+    bathy_sr <- if (inherits(bathy, "SpatRaster")) bathy else terra::rast(bathy)
+    b_min <- suppressWarnings(min(terra::values(bathy_sr), na.rm = TRUE))
+    if (is.finite(b_min) && b_min < 0) {
+      bathy_sr <- bathy_sr * -1
     }
-    bathy[bathy <= 0] <- NA
-    bathy <- raster::resample(bathy, L)
+    bathy_sr[bathy_sr <= 0] <- NA
+    if (!terra::compareGeom(bathy_sr, r_tmpl, stopOnError = FALSE)) {
+      bathy_sr <- terra::resample(bathy_sr, r_tmpl)
+    }
+    bathy_mat <- terra::as.matrix(bathy_sr, wide = TRUE)
   }
   
-  ## COMBINE THE LIKELIHOOD LAYERS
-  ## for each day:
-  for (i in 1:length(dateVec)){
-    
-    #print(i)
-    
-    ## get relevant likelihoods across the list
-    for (bb in 1:length(ras.list)){
-      if (bb == 1){
-        s <- raster::stack(ras.list[[bb]][[i]])
-      } else{
-        s <- raster::stack(s, ras.list[[bb]][[i]])
+  L_arr <- array(0, dim = c(nr, nc, T_len))
+  
+  ## COMBINE THE LIKELIHOOD LAYERS IN MEMORY
+  for (i in seq_len(T_len)){
+    active_mats <- list()
+    for (bb in seq_len(n_ras)){
+      mat <- arr_list[[bb]][,,i]
+      mv <- suppressWarnings(max(mat, na.rm = TRUE))
+      if (is.finite(mv) && mv > 0) {
+        active_mats[[length(active_mats) + 1L]] <- mat / mv
       }
     }
     
-    ## check for layers with all NA or all <= 0
-    sum_NA <- raster::cellStats(!is.na(s), sum, na.rm = TRUE) == 0
-    max_vals <- suppressWarnings(raster::cellStats(s, 'max', na.rm = TRUE))
-    empty_layer <- sum_NA | is.na(max_vals) | is.infinite(max_vals) | (max_vals <= 0)
+    if (length(active_mats) == 0L) next
     
-    ## if all layers are empty, skip to next day
-    if (all(empty_layer)){
-      next
-    } else if (any(empty_layer)){
-      s <- s[[-which(empty_layer)]]
-    }
-    
-    ## multiply & normalize whatever layers remain (fallback to sum if disjoint)
-    if (raster::nlayers(s) == 1){
-      L[[i]] <- s / raster::cellStats(s, 'max', na.rm = TRUE)
-    } else{
-      for (kk in 1:raster::nlayers(s)) {
-        mk <- raster::cellStats(s[[kk]], 'max', na.rm = TRUE)
-        if (is.finite(mk) && mk > 0) s[[kk]] <- s[[kk]] / mk
-      }
-      s_prod <- prod(s, na.rm = FALSE)
-      m_prod <- suppressWarnings(raster::cellStats(s_prod, 'max', na.rm = TRUE))
+    if (length(active_mats) == 1L){
+      day_mat <- active_mats[[1L]]
+    } else {
+      s_prod <- Reduce(`*`, active_mats)
+      m_prod <- suppressWarnings(max(s_prod, na.rm = TRUE))
       if (is.finite(m_prod) && m_prod > 0) {
-        L[[i]] <- s_prod / m_prod
+        day_mat <- s_prod / m_prod
       } else {
-        s_sum <- sum(s, na.rm = TRUE)
-        L[[i]] <- s_sum / raster::cellStats(s_sum, 'max', na.rm = TRUE)
+        s_sum <- Reduce(function(a, b) {
+          a[is.na(a)] <- 0
+          b[is.na(b)] <- 0
+          a + b
+        }, active_mats)
+        m_sum <- suppressWarnings(max(s_sum, na.rm = TRUE))
+        day_mat <- if (is.finite(m_sum) && m_sum > 0) s_sum / m_sum else matrix(0, nr, nc)
       }
     }
     
     ## daily bathy mask (always zero out land; filter by depth when maxDepth[i] > 0)
-    if (!is.null(bathy)) {
-      L[[i]][is.na(bathy)] <- 0
+    if (!is.null(bathy_mat)) {
+      day_mat[is.na(bathy_mat)] <- 0
       if (!is.null(maxDepth) && maxDepth[i] > 0) {
-        bathy.i <- maxDepth[i] * (1 - 20 / 100) # give 20% of max depth buffer for likelihood flexibility
-        L[[i]][bathy < bathy.i] <- 0
+        bathy.i <- maxDepth[i] * (1 - 20 / 100)
+        day_mat[bathy_mat < bathy.i] <- 0
       }
     }
     
+    L_arr[,,i] <- day_mat
   }
   
   #----------------------------------------------------------------------------------#
   # MAKE ALL NA'S VERY TINY FOR THE CONVOLUTION ON INTERIOR DAYS
   # Run BEFORE iniloc / known.locs so fixed start/end/known days stay exact point masses (1 vs 0)
   #----------------------------------------------------------------------------------#
-  L[L <= 1e-15] <- 1e-15
-  L[is.na(L)] <- 1e-15
+  L_arr[is.na(L_arr) | L_arr <= 1e-15] <- 1e-15
 
   ## ADD START/END LOCATIONS
   if(!is.null(iniloc)){
-    # convert input date, lat, lon to likelihood surfaces
     print('Adding start and end locations from iniloc...')
-    
-    # get lat/lon vectors
-    #lon <- seq(raster::extent(L)[1], raster::extent(L)[2], length.out=dim(L)[2])
-    #lat <- seq(raster::extent(L)[3], raster::extent(L)[4], length.out=dim(L)[1])
     iniloc$date <- as.POSIXct(
       sprintf('%04d-%02d-%02d', as.numeric(iniloc$year), as.numeric(iniloc$month), as.numeric(iniloc$day)),
       tz = 'UTC'
@@ -120,50 +114,41 @@ make.L <- function(ras.list, iniloc, dateVec, maxDepth = NULL, bathy = NULL, kno
     
     for(i in unique(iniloc$dateVec)){
       known.locs.i <- iniloc[which(iniloc$dateVec == i),]
-      
-      #x = which.min((known.locs.i$lon - lon) ^ 2)
-      #y = which.min((known.locs.i$lat - lat) ^ 2)
-      
-      ## erase other likelihood results for this day
-      L[[i]] <- L[[i]] * 0
-      
-      # assign the known location for this day, i, as 1 (known) in likelihood raster
-      L[[i]][raster::cellFromXY(L[[i]], known.locs.i[,c('lon','lat')])] <- 1
-      
+      L_arr[,,i] <- 0
+      cells <- terra::cellFromXY(r_tmpl, as.matrix(known.locs.i[, c('lon', 'lat')]))
+      rc <- terra::rowColFromCell(r_tmpl, cells)
+      valid_rc <- !is.na(rc[,1]) & !is.na(rc[,2])
+      if (any(valid_rc)) {
+        L_arr[cbind(rc[valid_rc, 1], rc[valid_rc, 2], i)] <- 1
+      }
     }
-    
   }
   
   ## ADD KNOWN LOCATIONS
   if(!is.null(known.locs)){
     print('Known locations are being added to the likelihoods...')
-    
     if (class(known.locs$date)[1] != class(dateVec)[1]) stop('dateVec and known.locs$date both need to be of class POSIXct.')
-    
     known.locs <- known.locs[which(known.locs$date <= max(dateVec)),]
     known.locs$dateVec <- findInterval(known.locs$date, dateVec)
     
     for(i in unique(known.locs$dateVec)){
       known.locs.i <- known.locs[which(known.locs$dateVec == i),]
-      
-      if(length(known.locs.i[,1]) > 1){
-        # if multiple known locations are provided for a given day, only the first is used
+      if(nrow(known.locs.i) > 1){
         warning(paste0('Multiple locations supplied at time step ', dateVec[i], '. Only the first one is being used.'))
         known.locs.i <- known.locs.i[1,]
       }
-      
-      ## erase other likelihood results for this day
-      L[[i]] <- L[[i]] * 0
-      
-      ## assign the known location for this day, i, as 1 (known) in likelihood raster
-      L[[i]][raster::cellFromXY(L[[i]], known.locs.i[,c('lon','lat')])] <- 1
-      
+      L_arr[,,i] <- 0
+      cells <- terra::cellFromXY(r_tmpl, as.matrix(known.locs.i[, c('lon', 'lat')]))
+      rc <- terra::rowColFromCell(r_tmpl, cells)
+      valid_rc <- !is.na(rc[,1]) & !is.na(rc[,2])
+      if (any(valid_rc)) {
+        L_arr[cbind(rc[valid_rc, 1], rc[valid_rc, 2], i)] <- 1
+      }
     }
-    
   }
   
-  # CONVERT OUTPUT RASTER INTO AN ARRAY
-  L <- aperm(raster::as.array(raster::flip(L, direction = 'y')), c(3, 2, 1))
+  # CONVERT NORTH-UP (nrow, ncol, T) ARRAY TO SOUTH-UP (T, ncol, nrow) ARRAY
+  L <- aperm(L_arr[nr:1, , , drop = FALSE], c(3, 2, 1))
   
   print('Finishing make.L...', sep='')
   

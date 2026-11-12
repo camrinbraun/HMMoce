@@ -40,23 +40,22 @@ get.bath.data <- function(spatLim, save.dir = tempdir(), seaonly = TRUE, res = c
     fname1 = paste(tdir, "bathy1.nc", sep = "/")
     fname2 = paste(tdir, "bathy2.nc", sep = "/")
     
-    ex180 <- raster::extent(-180, 180, -90, 90)
-    ex360 <- raster::extent(180, 360, -90, 90)
+    ex180 <- terra::ext(-180, 180, -90, 90)
+    ex360 <- terra::ext(180, 360, -90, 90)
+    sp_ext <- terra::ext(spatLim$lonmin, spatLim$lonmax, spatLim$latmin, spatLim$latmax)
     
     ## get part 1 - whatever is above 180
-    ex1 <- raster::intersect(raster::extent(unlist(spatLim)), ex360)
-    ex1 <- raster::extent(raster::rotate(raster::raster(ex1)))
-    #if (ex1@xmin == -180) ex1@xmin <- -179.99
+    ex1 <- terra::intersect(sp_ext, ex360)
+    ex1 <- terra::ext(ex1[1] - 360, ex1[2] - 360, ex1[3], ex1[4])
     original_dir <- getwd()
     tdir <- tempdir()
     
-    lonlow <- ex1@xmin
-    lonhigh <- ex1@xmax
-    latlow <- ex1@ymin
-    lathigh <- ex1@ymax
+    lonlow <- ex1[1]
+    lonhigh <- ex1[2]
+    latlow <- ex1[3]
+    lathigh <- ex1[4]
     
     opt_save <- opt
-    #opt <- opt_save
     opt <- sub("LATLOW", latlow, opt)
     opt <- sub("LATHIGH", lathigh, opt)
     opt <- sub("LONLOW", lonlow, opt)
@@ -64,28 +63,21 @@ get.bath.data <- function(spatLim, save.dir = tempdir(), seaonly = TRUE, res = c
     
     cat(opt)
     curl::curl_download(opt, fname1, quiet=FALSE)
-    #utils::download.file(opt, fname)
-    
     
     ## get part 2 - whatever is below 180, if any
-    ex2 <- raster::intersect(raster::extent(unlist(spatLim)), ex180)
+    ex2 <- terra::intersect(sp_ext, ex180)
     if (is.null(ex2)){
-      ## the first download got the full extent 
-      
       bathy <- irregular_ncToRaster(fname1, varid)
-      
       setwd(original_dir)
-      raster::writeRaster(bathy, paste0(save.dir, '/bathy.nc'), format='CDF', overwrite=TRUE, varname = 'topo')
+      terra::writeCDF(bathy, paste0(save.dir, '/bathy.nc'), overwrite=TRUE, varname = 'topo')
       if (seaonly == T) bathy[bathy >= 0] <- NA
       return(bathy)
-      
     }
-    #if (ex2@xmax == 180) ex2@xmax <- 179.995
     
-    lonlow <- ex2@xmin
-    lonhigh <- ex2@xmax
-    latlow <- ex2@ymin
-    lathigh <- ex2@ymax
+    lonlow <- ex2[1]
+    lonhigh <- ex2[2]
+    latlow <- ex2[3]
+    lathigh <- ex2[4]
     
     opt <- opt_save
     opt <- sub("LATLOW", latlow, opt)
@@ -95,32 +87,26 @@ get.bath.data <- function(spatLim, save.dir = tempdir(), seaonly = TRUE, res = c
     
     cat(opt)
     curl::curl_download(opt, fname2, quiet=FALSE)
-    #utils::download.file(opt, fname)
-    
     
     print('merging those files to a single output file')
     r1 <- irregular_ncToRaster(fname1, varid)
     r2 <- irregular_ncToRaster(fname2, varid)
-    r1r <- raster::shift(raster::rotate(raster::shift(r1, 180)), 180)
+    r1r <- terra::shift(terra::rotate(terra::shift(r1, dx = 180)), dx = 180)
     
-    ## reset original directory after messing w temp files
     setwd(original_dir)
     
-    e <- raster::extent(spatLim$lonmin, spatLim$lonmax, spatLim$latmin, spatLim$latmax)
-    template <- raster::raster(e, ncols = ceiling((e@xmax - e@xmin) / raster::res(r1)[1]),
-                               nrows = ceiling((e@ymax - e@ymin) / raster::res(r1)[1]))
-    raster::projection(template) <- '+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs'
-    crs(r1) <- crs(template)
-    crs(r2) <- crs(template)
-    r1p <- try(raster::resample(r1, template), TRUE)
-    if (class(r1p) == 'try-error') r1p <- raster::resample(r1r, template)
-    r2p <- raster::resample(r2, template)
-    r3 <- raster::merge(r1p, r2p)
+    e <- terra::ext(spatLim$lonmin, spatLim$lonmax, spatLim$latmin, spatLim$latmax)
+    template <- terra::rast(e, ncols = ceiling((e[2] - e[1]) / terra::res(r1)[1]),
+                            nrows = ceiling((e[4] - e[3]) / terra::res(r1)[1]),
+                            crs = '+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs')
+    terra::crs(r1) <- terra::crs(template)
+    terra::crs(r2) <- terra::crs(template)
+    r1p <- try(terra::resample(r1, template), TRUE)
+    if (inherits(r1p, 'try-error')) r1p <- terra::resample(r1r, template)
+    r2p <- terra::resample(r2, template)
+    r3 <- terra::merge(r1p, r2p)
     
-    #print(paste(save.dir, '/', filename, '_', time, '.nc', sep = ''))
-    #r1r <- raster::shift(raster::rotate(raster::shift(r1, 180)), 180)
-    #r3 <- raster::merge(r1r, r2)
-    raster::writeRaster(r3, paste0(save.dir, '/bathy.nc'), format='CDF', overwrite=TRUE, varname = 'topo')
+    terra::writeCDF(r3, paste0(save.dir, '/bathy.nc'), overwrite=TRUE, varname = 'topo')
     if (file.exists(paste0(save.dir, '/bathy.nc'))) print(paste0('File output to ', paste0(save.dir, '/bathy.nc')))
     bathy <- r3
     
@@ -137,13 +123,11 @@ get.bath.data <- function(spatLim, save.dir = tempdir(), seaonly = TRUE, res = c
     
     cat(opt)
     curl::curl_download(opt, fname, quiet=FALSE)
-    #utils::download.file(opt, fname)
     
-    ## bathy is on irregular grid so needs to be coerced
     bathy <- irregular_ncToRaster(fname, varid)
     
     setwd(original_dir)
-    raster::writeRaster(bathy, paste0(save.dir, '/bathy.nc'), format='CDF', overwrite=TRUE, varname = 'topo')
+    terra::writeCDF(bathy, paste0(save.dir, '/bathy.nc'), overwrite=TRUE, varname = 'topo')
     if (file.exists(paste0(save.dir, '/bathy.nc'))) print(paste0('File output to ', paste0(save.dir, '/bathy.nc')))
     
   }

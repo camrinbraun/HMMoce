@@ -30,52 +30,26 @@
 #' 
 
 mask.L <- function(pred.t, L.t, lon, lat, par0, bound.thr = .05, minBounds=NULL){
-  crs <- "+proj=longlat +datum=WGS84 +ellps=WGS84"
-  list.pred <- list(x = lon, y = lat, z = pred.t)
-  ex <- raster::extent(list.pred)
-  r <- raster::flip(raster::raster(t(list.pred$z), xmn = ex[1], xmx = ex[2], ymn = ex[3], ymx = ex[4], crs), 'y')
-  r.m <- r
-  lwr.thr <- bound.thr * raster::cellStats(r.m, 'max')
-  r.m[r.m <= lwr.thr] <- NA
-  r.m <- raster::trim(r.m)
-  #r.t <- trim(r.m)
-  #plot(r.t)
+  lwr.thr <- bound.thr * max(pred.t, na.rm = TRUE)
+  idx <- which(pred.t > lwr.thr, arr.ind = TRUE)
+  if (nrow(idx) == 0) return(pred.t)
   
-  ex <- raster::extent(r.m)
-  #p1 <- as(ex, 'SpatialPolygons')  
+  ex <- c(min(lon[idx[,1]]), max(lon[idx[,1]]), min(lat[idx[,2]]), max(lat[idx[,2]]))
   x.diff <- .1 * (ex[2] - ex[1])
   y.diff <- .1 * (ex[4] - ex[3])
-  ex[1] <- ex[1] - x.diff
-  ex[2] <- ex[2] + x.diff
-  ex[3] <- ex[3] - y.diff
-  ex[4] <- ex[4] + y.diff
+  ex <- c(ex[1] - x.diff, ex[2] + x.diff, ex[3] - y.diff, ex[4] + y.diff)
   
-  if(is.null(minBounds)) minBounds <- par0$migr * raster::res(r)[1]
-  x.diff <- ex[2] - ex[1]
-  y.diff <- ex[4] - ex[3]
-  
-  if(x.diff < minBounds | y.diff < minBounds){
-    ex <- raster::extent(r.m)
-    mid.x <- (ex[2] + ex[1]) / 2
-    ex[1] <- mid.x - minBounds / 2
-    ex[2] <- mid.x + minBounds / 2
-    
-    mid.y <- (ex[4] + ex[3]) / 2
-    ex[3] <- mid.y - minBounds / 2
-    ex[4] <- mid.y + minBounds / 2
-    
+  res_x <- if (length(lon) > 1) abs(lon[2] - lon[1]) else 0.08
+  if(is.null(minBounds)) minBounds <- (if (is.list(par0)) par0$migr else par0[1]) * res_x
+  if((ex[2] - ex[1]) < minBounds || (ex[4] - ex[3]) < minBounds){
+    mid.x <- mean(range(lon[idx[,1]]))
+    mid.y <- mean(range(lat[idx[,2]]))
+    ex <- c(mid.x - minBounds / 2, mid.x + minBounds / 2, mid.y - minBounds / 2, mid.y + minBounds / 2)
   }
   
-  new.ex <- as(ex, 'SpatialPolygons')  
-  
-  p.mask <- raster::mask(r, new.ex, updatevalue=1, inverse=T)
-  p.mask[p.mask < 1] <- 1e-15
-  #r.mask <- p.mask * r
-  #plot(r.mask)
-  #plot(p1, add=T, col='green')
-  #plot(p2, add=T, col='red')
-  
-  p.mask <- t(raster::as.matrix(raster::flip(p.mask, 'y')))
+  in_x <- lon >= ex[1] & lon <= ex[2]
+  in_y <- lat >= ex[3] & lat <= ex[4]
+  p.mask <- outer(in_x, in_y, function(a, b) ifelse(a & b, 1, 1e-15))
   
   new.L <- p.mask * L.t
   if(max(new.L, na.rm=T) > 1e-15){
