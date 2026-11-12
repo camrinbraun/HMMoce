@@ -172,8 +172,8 @@ calc.ohc.glorys <- function(pdt, filename, isotherm = '', ohc.dir, dateVec, dept
     pred.high = stats::predict(fit.high, newdata = glorysDep, se = TRUE, get.data = TRUE)
     
     if (use.se && all(is.finite(pred.low$se.fit)) && all(is.finite(pred.high$se.fit))){
-      df = data.frame(low = pred.low$fit - pred.low$se.fit * sqrt(n),
-                      high = pred.high$fit + pred.high$se.fit * sqrt(n),
+      df = data.frame(low = pred.low$fit - pred.low$se.fit,
+                      high = pred.high$fit + pred.high$se.fit,
                       depth = glorysDep)
       if (any(!is.finite(df$low)) || any(!is.finite(df$high)) || min(df$low, na.rm = TRUE) < -2) {
         df = data.frame(low = pred.low$fit,

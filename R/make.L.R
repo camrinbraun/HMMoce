@@ -67,12 +67,22 @@ make.L <- function(ras.list, iniloc, dateVec, maxDepth = NULL, bathy = NULL, kno
       s <- s[[-which(empty_layer)]]
     }
     
-    ## sum & normalize whatever layers remain
+    ## multiply & normalize whatever layers remain (fallback to sum if disjoint)
     if (raster::nlayers(s) == 1){
       L[[i]] <- s / raster::cellStats(s, 'max', na.rm = TRUE)
     } else{
-      s_sum <- sum(s, na.rm = TRUE)
-      L[[i]] <- s_sum / raster::cellStats(s_sum, 'max', na.rm = TRUE)
+      for (kk in 1:raster::nlayers(s)) {
+        mk <- raster::cellStats(s[[kk]], 'max', na.rm = TRUE)
+        if (is.finite(mk) && mk > 0) s[[kk]] <- s[[kk]] / mk
+      }
+      s_prod <- prod(s, na.rm = FALSE)
+      m_prod <- suppressWarnings(raster::cellStats(s_prod, 'max', na.rm = TRUE))
+      if (is.finite(m_prod) && m_prod > 0) {
+        L[[i]] <- s_prod / m_prod
+      } else {
+        s_sum <- sum(s, na.rm = TRUE)
+        L[[i]] <- s_sum / raster::cellStats(s_sum, 'max', na.rm = TRUE)
+      }
     }
     
     ## daily bathy mask (always zero out land; filter by depth when maxDepth[i] > 0)

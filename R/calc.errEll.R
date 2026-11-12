@@ -28,8 +28,12 @@ calc.errEll <- function(locs, locs.grid){
     
   }
   
-  # if offset is really large, we revert to longitude only. if not, we use elliptical error.
-  if(shiftDist >= -10 & shiftDist <= 10){
+  lat_valid <- !is.na(locs$Latitude[1]) &&
+               locs$Latitude[1] >= min(locs.grid$lat[,1]) &&
+               locs$Latitude[1] <= max(locs.grid$lat[,1])
+
+  # if offset is really large or latitude is out of bounds/NA, revert to longitude only. if not, use elliptical error.
+  if(lat_valid && shiftDist >= -10 & shiftDist <= 10){
     # set up a larger grid to base ellipse on and to shift that error, if necessary (GPE only)
     ngrid <- rev(dim(locs.grid$lon))
     lon1 <- seq(min(locs.grid$lon[1,]) - 10, max(locs.grid$lon[1,]) + 10, by = locs.grid$dlo)
@@ -81,9 +85,9 @@ calc.errEll <- function(locs, locs.grid){
     rr <- raster::resample(Lsx, L.ext)
     L.light <- t(raster::as.matrix(raster::flip(rr, direction = 'y')))
     
-  } else if(shiftDist < -10 | shiftDist > 10){
+  } else {
     
-    # if supposed shift in error ellipse is >10 degrees, we revert to longitude only
+    # if supposed shift in error ellipse is >10 degrees or latitude is invalid, we revert to longitude only
     if ('Error.Semi.minor.axis' %in% names(locs)){
       # create longitude likelihood based on GPE data
       slon.sd <- locs$Error.Semi.minor.axis[1] / 1000 / 111 #semi minor axis

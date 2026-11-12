@@ -219,11 +219,13 @@ if (all(c("depth", "temperature") %in% names(etuff$etuff))) {
 ## 4.3 Light / Geolocation Estimates
 if (all(c("latitude", "longitude") %in% names(etuff$etuff))) {
   lightloc <- etuff$etuff %>%
-    dplyr::filter(!is.na(latitude) & !is.na(longitude)) %>%
+    dplyr::filter(!is.na(longitude) & longitude >= -100 & longitude <= -75) %>%
     dplyr::select(Date = DateTime, Latitude = latitude, Longitude = longitude) %>%
     dplyr::mutate(
+      # Mask physically impossible Gulf latitudes (<18N or >31N) to NA so calc.errEll reverts to lon-only on those days
+      Latitude = ifelse(!is.na(Latitude) & Latitude >= 18 & Latitude <= 31, Latitude, NA_real_),
       Error.Semi.minor.axis = 70000,
-      Error.Semi.major.axis = 100000,
+      Error.Semi.major.axis = 100000*3,
       Offset = 0,
       Offset.orientation = 0
     ) %>%
@@ -302,8 +304,8 @@ if (!is.null(lightloc) && nrow(lightloc) > 0) {
       lightloc,
       locs.grid = locs.grid,
       dateVec = dateVec,
-      errEll = FALSE,
-      lon_only = TRUE
+      errEll = TRUE,
+      lon_only = FALSE
     )
     saveRDS(L.light, light_rds)
   } else {
@@ -491,24 +493,31 @@ resamp.idx <- which.min(lapply(L.rasters, function(x) raster::res(x)[1]))
 L.res <- resample.grid(L.rasters, L.rasters[[resamp.idx]])
 
 # Mask light likelihood over land using finest available ocean mask (0.083 deg GLORYS if available, else bathy)
+# and floor ocean cells at 1e-3 so multiplicative make.L() doesn't underflow on noisy light days
 if ("light" %in% names(L.res$L.rasters)) {
   ocean_src <- intersect(c("glorys", "sst", "ohc"), names(L.res$L.rasters))
   if (length(ocean_src) > 0) {
     ocean_mask <- max(L.res$L.rasters[[ocean_src[1]]], na.rm = TRUE) > 0
-    L.res$L.rasters$light <- L.res$L.rasters$light * ocean_mask
   } else if (!is.null(bathy)) {
     b_res <- raster::resample(bathy, L.res$L.rasters$light)
     ocean_mask <- !is.na(b_res) & (b_res < 0)
-    L.res$L.rasters$light <- L.res$L.rasters$light * ocean_mask
+  } else {
+    ocean_mask <- 1
+  }
+  light_active <- which(raster::cellStats(L.res$L.rasters$light, "max", na.rm = TRUE) > 0)
+  for (ii in light_active) {
+    lyr <- L.res$L.rasters$light[[ii]]
+    lyr[is.na(lyr) | lyr < 1e-3] <- 1e-3
+    L.res$L.rasters$light[[ii]] <- lyr * ocean_mask
   }
 }
 
 # Zero-out maxDepth filtering since bathymetry limiting is not used
 maxDepth_vec <- rep(0, length(dateVec))
 
-# weight of individual likelihoods
+# weight of individual likelihoods (applied as exponents for multiplicative likelihood combination)
 weights <- c(light = 1.0, sst = 1.0, ohc = 1.0, glorys = 1.0, pdt = 1.0, bathy = 1.0)
-ras_weighted <- Map(function(r, nm) r * weights[[nm]], L.res$L.rasters, names(L.res$L.rasters))
+ras_weighted <- Map(function(r, nm) r ^ weights[[nm]], L.res$L.rasters, names(L.res$L.rasters))
 
 # Form master observation likelihood array
 L <- make.L(
@@ -550,12 +559,12 @@ plot(L_rast[[c(1, 10, 20, 30, 50, 93)]], mar = 0)
 fit <- opt.params(
   pars.init    = c(4, 1, 0.85, 0.85),
   lower.bounds = c(2, 0.2, 0.2, 0.2),
-  upper.bounds = c(20, 4.0, 0.95, 0.95),
+  upper.bounds = c(10, 4.0, 0.95, 0.95),
   g = L.res$g, L = L, alg.opt = "rtmb"
 )
 
 
-# sigmas <- c(5, 1.5)
+sigmas <- c(4, 1)
 sigmas <- fit$par[1:2]
 sizes  <- rep(ceiling(sigmas[1] * 6), 2)
 if (sizes[1] %% 2 == 0) sizes[1] <- sizes[1] + 1
@@ -575,15 +584,17 @@ m_states <- 2
 
 # 7.2 Define Likelihood Combinations to Test
 combos <- list(
-  ohc_light       = c("ohc", "light"),
-  glorys_light    = c("glorys", "light"),
-  # pdt_light       = c("pdt", "light"),
+  ohc_light        = c("ohc", "light"),
+  glorys_light     = c("glorys", "light"),
+  glorys_light_sst = c("glorys", "light", "sst"),
+  ohc_light_sst    = c("ohc", "light", "sst"),
+  pdt_light       = c("pdt", "light"),
   ohc             = c("ohc"),
-  glorys          = c("glorys")
-  # light           = c("light"),
-  # light_bathy     = c("light", "bathy"),
+  glorys          = c("glorys"),
+  light           = c("light"),
+  light_bathy     = c("light", "bathy"),
   light_bathy_sst = c("light", "bathy", "sst"),
-  # light_ohc_bathy = c("light", "bathy", "ohc"),
+  light_ohc_bathy = c("light", "bathy", "ohc"),
   light_pdt_bathy = c("light", "bathy", "pdt")
 )
 combos <- combos[sapply(combos, function(x) all(x %in% names(L.res$L.rasters)))]
@@ -677,6 +688,7 @@ p_comp <- ggplot() +
   geom_polygon(data = world_map, aes(x = long, y = lat, group = group), fill = "grey80", color = "grey60") +
   coord_fixed(xlim = c(sp.lim$lonmin, sp.lim$lonmax), ylim = c(sp.lim$latmin, sp.lim$latmax)) +
   geom_path(data = all_tracks, aes(x = lon, y = lat, color = model), linewidth = 0.9, alpha = 0.85) +
+  geom_point(data = all_tracks, aes(x = lon, y = lat), fill = "black", color = "black", shape = 19, size = .2) +
   geom_point(data = iniloc[1, ], aes(x = lon, y = lat), fill = "green", color = "black", shape = 21, size = 4) +
   geom_point(data = iniloc[2, ], aes(x = lon, y = lat), fill = "red", color = "black", shape = 21, size = 4) +
   theme_bw() +

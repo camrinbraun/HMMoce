@@ -99,7 +99,7 @@ calc.glorys.par <- function(pdt, filename, glorys.dir, focalDim = 9, dateVec, de
     pdt.i <- pdt[which(pdt$dateVec == i),]
     if (nrow(pdt.i) < 3) return(NULL)
     
-    depIdx <- unique(vapply(pdt.i$depth, function(x) which.min((x - depth)^2), integer(1)))
+    depIdx <- sort(unique(vapply(pdt.i$depth, function(x) which.min((x - depth)^2), integer(1))))
     if (length(depIdx) < 2) return(NULL)
     glorysDep <- depth[depIdx]
     
@@ -133,8 +133,8 @@ calc.glorys.par <- function(pdt, filename, glorys.dir, focalDim = 9, dateVec, de
     pred.high <- stats::predict(fit.high, newdata = glorysDep, se = TRUE, get.data = TRUE)
     
     if (use.se && all(is.finite(pred.low$se.fit)) && all(is.finite(pred.high$se.fit))){
-      df <- data.frame(low = pred.low$fit - pred.low$se.fit * sqrt(n),
-                       high = pred.high$fit + pred.high$se.fit * sqrt(n),
+      df <- data.frame(low = pred.low$fit - pred.low$se.fit,
+                       high = pred.high$fit + pred.high$se.fit,
                        depth = glorysDep)
       if (any(!is.finite(df$low)) || any(!is.finite(df$high)) || min(df$low, na.rm = TRUE) < -2) {
         df <- data.frame(low = pred.low$fit, high = pred.high$fit, depth = glorysDep)
@@ -146,7 +146,8 @@ calc.glorys.par <- function(pdt, filename, glorys.dir, focalDim = 9, dateVec, de
     
     lik.pdt <- array(NA_real_, dim = c(dim(dat)[1], dim(dat)[2], length(depIdx)))
     active_b <- logical(length(depIdx))
-    surface_ocean <- is.finite(dat[,,1])
+    # Native bathymetry constraint: water column must be at least as deep as max daily dive bin
+    deep_ocean <- is.finite(dat[,,length(depIdx)]) & is.finite(sd.i[,,length(depIdx)])
     
     for (b in seq_along(depIdx)) {
       lik.try <- try(likint3(dat[,,b], sd.i[,,b], df$low[b], df$high[b]), TRUE)
@@ -155,8 +156,8 @@ calc.glorys.par <- function(pdt, filename, glorys.dir, focalDim = 9, dateVec, de
         low_b  <- pred.low$fit[b]
         high_b <- max(pred.high$fit[b], low_b + 1.0)
         if (is.finite(pred.low$se.fit[b]) && is.finite(pred.high$se.fit[b])) {
-          low_b  <- max(-2, pred.low$fit[b] - pred.low$se.fit[b] * sqrt(n))
-          high_b <- max(low_b + 1.0, pred.high$fit[b] + pred.high$se.fit[b] * sqrt(n))
+          low_b  <- max(-2, pred.low$fit[b] - pred.low$se.fit[b])
+          high_b <- max(low_b + 1.0, pred.high$fit[b] + pred.high$se.fit[b])
         }
         lik.try <- try(likint3(dat[,,b], sd.i[,,b], low_b, high_b), TRUE)
         if (inherits(lik.try, 'try-error') || !any(lik.try > 0, na.rm = TRUE)){
@@ -165,10 +166,8 @@ calc.glorys.par <- function(pdt, filename, glorys.dir, focalDim = 9, dateVec, de
       }
       if (any(lik.try > 0, na.rm = TRUE)) {
         active_b[b] <- TRUE
-        valid_ocean <- is.finite(dat[,,b]) & is.finite(sd.i[,,b])
-        lik.try[valid_ocean & (is.na(lik.try) | lik.try < 1e-3)] <- 1e-3
-        lik.try[surface_ocean & !valid_ocean] <- 1e-2
-        lik.try[!surface_ocean] <- NA_real_
+        lik.try[deep_ocean & (is.na(lik.try) | lik.try < 1e-3)] <- 1e-3
+        lik.try[!deep_ocean] <- NA_real_
       }
       lik.pdt[,,b] <- lik.try
     }
