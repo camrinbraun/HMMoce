@@ -55,14 +55,20 @@ hmm.smoother1 <- function(f, L, K, P=NULL){
   }
 
   smooth <- array(0, dim = dim(f$phi))
-  smooth[,T,,] <- f$phi[,T,,]
+  sum_phi_T <- sum(f$phi[,T,,], na.rm = TRUE)
+  if (is.finite(sum_phi_T) && sum_phi_T > 0) {
+    smooth[,T,,] <- f$phi[,T,,] / sum_phi_T
+  } else {
+    sum_LT <- max(sum(L[T,,], na.rm = TRUE), 1e-300)
+    for (ii in 1:m) smooth[ii,T,,] <- L[T,,] / (m * sum_LT)
+  }
   
   ## create empty lists for upcoming vars
   p <- list(); Rp <- list(); post <- list()
   
   for(t in T:2){
     
-    RAT <- smooth[,t,,] / (f$pred[,t,,] + 1e-15)
+    RAT <- smooth[,t,,] / pmax(f$pred[,t,,], 1e-300)
     ## preserve the same array dims even if m == 1
     if (m == 1) RAT <- abind::abind(RAT, RAT, along = 0)[1,,, drop=F]
 
@@ -76,7 +82,7 @@ hmm.smoother1 <- function(f, L, K, P=NULL){
 
     # multiply by transition probability 
     if (m == 1){
-      post[[ii]] <- matrix(Rp[[1]], row, col)
+      post[[1]] <- matrix(Rp[[1]], row, col)
       
     } else if (m == 2){
       post[[1]] <- matrix(P[1,1] * Rp[[1]] + P[1,2] * Rp[[2]], row, col)
@@ -88,44 +94,19 @@ hmm.smoother1 <- function(f, L, K, P=NULL){
       print('Skipping mult trans prob')
     }
 
-    if (T == t){
+    for (ii in 1:m){
+      post[[ii]] <- post[[ii]] * f$phi[ii,t-1,,]
+    }
+    fac <- sum(vapply(post, sum, numeric(1), na.rm = TRUE))
+    if (is.finite(fac) && fac > 0) {
       for (ii in 1:m){
-        post[[ii]] <- f$phi[1,t,,] * 0
-        if (ii == 1) post[[1]] <- L[t,,]
-        fac <- sum(unlist(lapply(post, FUN = function(x) sum(x, na.rm = T))))
-        if (fac < 1e-200) fac <- 1e-200 ## added to prevent fac == 0
-        smooth[ii,t,,] <- post[[ii]] / fac
-        post[[ii]] <- post[[ii]] * f$phi[ii,t-1,,]
-        fac <- sum(unlist(lapply(post, FUN = function(x) sum(x, na.rm = T))))
-        if (fac < 1e-200) fac <- 1e-200 ## added to prevent fac == 0
         smooth[ii,t-1,,] <- post[[ii]] / fac
-        
-        #post1 <- f$phi[1,t,,] * 0
-        #post2 <- L[t,,]
-        #fac <- sum(as.vector(post1)) + sum(as.vector(post2))
-        #smooth[1,t,,] <- post1 / fac
-        #smooth[2,t,,] <- post2 / fac 
-        #post1 <- post1 * f$phi[1,t-1,,]
-        #post2 <- post2 * f$phi[2,t-1,,]
-        #fac <- sum(as.vector(post1)) + sum(as.vector(post2))
-        #smooth[1,t-1,,] <- post1 / fac
-        #smooth[2,t-1,,] <- post2 / fac
       }
-        
-    } else{
-      for (ii in 1:m){
-        
-        post[[ii]] <- post[[ii]] * f$phi[ii,t-1,,]
-        fac <- sum(unlist(lapply(post, FUN = function(x) sum(x, na.rm = T))))
-        #fac <- sum(as.vector(post[[1]])) + sum(as.vector(post[[2]]))
-        smooth[ii,t-1,,] <- post[[ii]] / fac
-        #post1 <- post1 * f$phi[1,t-1,,]
-        #post2 <- post2 * f$phi[2,t-1,,]
-        #fac <- sum(as.vector(post1)) + sum(as.vector(post2))
-        #smooth[1,t-1,,] <- post1 / fac
-        #smooth[2,t-1,,] <- post2 / fac
+    } else {
+      sum_phi_prev <- sum(f$phi[,t-1,,], na.rm = TRUE)
+      if (is.finite(sum_phi_prev) && sum_phi_prev > 0) {
+        smooth[,t-1,,] <- f$phi[,t-1,,] / sum_phi_prev
       }
-      
     }
   }
   
@@ -146,12 +127,19 @@ hmm.smoother2 <- function(f, K1, K2, L, P){
   K2 <- imager::as.cimg(K2)
   
   smooth <- array(0, dim = dim(f$phi))
-  smooth[,T,,] <- f$phi[,T,,]
+  sum_phi_T <- sum(f$phi[,T,,], na.rm = TRUE)
+  if (is.finite(sum_phi_T) && sum_phi_T > 0) {
+    smooth[,T,,] <- f$phi[,T,,] / sum_phi_T
+  } else {
+    sum_LT <- max(sum(L[T,,], na.rm = TRUE), 1e-300)
+    smooth[1,T,,] <- L[T,,] / (2 * sum_LT)
+    smooth[2,T,,] <- L[T,,] / (2 * sum_LT)
+  }
   
   #smooth <- f$phi  #default; fill in as the prediction step.
   
   for(t in T:2){
-    RAT <- smooth[,t,,] / (f$pred[,t,,] + 1e-15)
+    RAT <- smooth[,t,,] / pmax(f$pred[,t,,], 1e-300)
     
     # convolve today's smoother prediction with movement kernel
     p1 = imager::as.cimg(t(RAT[1,,]))
@@ -161,26 +149,18 @@ hmm.smoother2 <- function(f, K1, K2, L, P){
     Rp1 = t(as.matrix(Rp1))
     Rp2 = t(as.matrix(Rp2))
     
-    post1 <- matrix(P[1,1] * Rp1 + P[1,2] * Rp2, row, col)
-    post2 <- matrix(P[2,1] * Rp1 + P[2,2] * Rp2, row, col)
+    post1 <- matrix(P[1,1] * Rp1 + P[1,2] * Rp2, row, col) * f$phi[1,t-1,,]
+    post2 <- matrix(P[2,1] * Rp1 + P[2,2] * Rp2, row, col) * f$phi[2,t-1,,]
     
-    if(T == t){
-      post1 <- f$phi[1,t,,] * 0
-      post2 <- L[t,,]
-      fac <- sum(as.vector(post1)) + sum(as.vector(post2))
-      smooth[1,t,,] <- post1 / fac
-      smooth[2,t,,] <- post2 / fac 
-      post1 <- post1 * f$phi[1,t-1,,]
-      post2 <- post2 * f$phi[2,t-1,,]
-      fac <- sum(as.vector(post1)) + sum(as.vector(post2))
+    fac <- sum(post1, na.rm = TRUE) + sum(post2, na.rm = TRUE)
+    if (is.finite(fac) && fac > 0) {
       smooth[1,t-1,,] <- post1 / fac
       smooth[2,t-1,,] <- post2 / fac
-    }else{
-      post1 <- post1 * f$phi[1,t-1,,]
-      post2 <- post2 * f$phi[2,t-1,,]
-      fac <- sum(as.vector(post1)) + sum(as.vector(post2))
-      smooth[1,t-1,,] <- post1 / fac
-      smooth[2,t-1,,] <- post2 / fac
+    } else {
+      sum_phi_prev <- sum(f$phi[,t-1,,], na.rm = TRUE)
+      if (is.finite(sum_phi_prev) && sum_phi_prev > 0) {
+        smooth[,t-1,,] <- f$phi[,t-1,,] / sum_phi_prev
+      }
     }
   }
   

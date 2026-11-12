@@ -302,8 +302,8 @@ if (!is.null(lightloc) && nrow(lightloc) > 0) {
       lightloc,
       locs.grid = locs.grid,
       dateVec = dateVec,
-      errEll = TRUE, #FALSE,
-      lon_only = FALSE # TRUE
+      errEll = FALSE,
+      lon_only = TRUE
     )
     saveRDS(L.light, light_rds)
   } else {
@@ -490,6 +490,19 @@ message("Combining observation likelihoods: ", paste(names(L.rasters), collapse 
 resamp.idx <- which.min(lapply(L.rasters, function(x) raster::res(x)[1]))
 L.res <- resample.grid(L.rasters, L.rasters[[resamp.idx]])
 
+# Mask light likelihood over land using finest available ocean mask (0.083 deg GLORYS if available, else bathy)
+if ("light" %in% names(L.res$L.rasters)) {
+  ocean_src <- intersect(c("glorys", "sst", "ohc"), names(L.res$L.rasters))
+  if (length(ocean_src) > 0) {
+    ocean_mask <- max(L.res$L.rasters[[ocean_src[1]]], na.rm = TRUE) > 0
+    L.res$L.rasters$light <- L.res$L.rasters$light * ocean_mask
+  } else if (!is.null(bathy)) {
+    b_res <- raster::resample(bathy, L.res$L.rasters$light)
+    ocean_mask <- !is.na(b_res) & (b_res < 0)
+    L.res$L.rasters$light <- L.res$L.rasters$light * ocean_mask
+  }
+}
+
 # Zero-out maxDepth filtering since bathymetry limiting is not used
 maxDepth_vec <- rep(0, length(dateVec))
 
@@ -503,13 +516,15 @@ L <- make.L(
   iniloc = iniloc,
   dateVec = dateVec,
   maxDepth = maxDepth_vec,
-  bathy = bathy
+  bathy = if (any(c("glorys", "sst", "ohc") %in% names(L.res$L.rasters))) NULL else bathy
 )
 saveRDS(L, file.path(out_dir, "L.master.rds"))
 message("Master observation likelihood L constructed: dim = ", paste(dim(L), collapse = " x "))
 
 # check L visually ----
 library(terra)
+lon_coords <- L.res$g$lon[1, ]
+lat_coords <- L.res$g$lat[, 1]
 L_rast <- flip(
   rast(
     aperm(L, c(3, 2, 1)),
@@ -520,7 +535,7 @@ L_rast <- flip(
 )
 names(L_rast) <- as.character(dateVec)
 # Plot specific days
-plot(L_rast[[c(1, 10, 20, 30, 50, 93)]])
+plot(L_rast[[c(1, 10, 20, 30, 50, 93)]], mar = 0)
 
 # 7. Model Comparison with Fixed Movement Parameters -----------------------
 
@@ -535,14 +550,14 @@ plot(L_rast[[c(1, 10, 20, 30, 50, 93)]])
 fit <- opt.params(
   pars.init    = c(4, 1, 0.85, 0.85),
   lower.bounds = c(2, 0.2, 0.2, 0.2),
-  upper.bounds = c(100, 4.0, 0.95, 0.95),
+  upper.bounds = c(20, 4.0, 0.95, 0.95),
   g = L.res$g, L = L, alg.opt = "rtmb"
 )
 
 
-# sigmas <- c(6, 1.5)
+# sigmas <- c(5, 1.5)
 sigmas <- fit$par[1:2]
-sizes  <- rep(ceiling(sigmas[1] * 4), 2)
+sizes  <- rep(ceiling(sigmas[1] * 6), 2)
 if (sizes[1] %% 2 == 0) sizes[1] <- sizes[1] + 1
 if (sizes[2] %% 2 == 0) sizes[2] <- sizes[2] + 1
 muadvs <- c(0, 0)
@@ -562,13 +577,13 @@ m_states <- 2
 combos <- list(
   ohc_light       = c("ohc", "light"),
   glorys_light    = c("glorys", "light"),
-  pdt_light       = c("pdt", "light"),
+  # pdt_light       = c("pdt", "light"),
   ohc             = c("ohc"),
-  glorys          = c("glorys"),
-  light           = c("light"),
-  light_bathy     = c("light", "bathy"),
+  glorys          = c("glorys")
+  # light           = c("light"),
+  # light_bathy     = c("light", "bathy"),
   light_bathy_sst = c("light", "bathy", "sst"),
-  light_ohc_bathy = c("light", "bathy", "ohc"),
+  # light_ohc_bathy = c("light", "bathy", "ohc"),
   light_pdt_bathy = c("light", "bathy", "pdt")
 )
 combos <- combos[sapply(combos, function(x) all(x %in% names(L.res$L.rasters)))]

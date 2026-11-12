@@ -48,7 +48,20 @@ calc.glorys <- function(pdt, filename, glorys.dir, focalDim = 9, dateVec, depthV
   print(paste0('Generating profile likelihood for ', dateVec[1], ' through ', dateVec[length(dateVec)]))
   
   # open nc and get the indices for the vars
-  nc1 <- raster::brick(dir(glorys.dir, full.names = TRUE)[1])
+  first_nc <- NULL
+  for (d_idx in seq_along(dateVec)) {
+    cand <- c(
+      file.path(glorys.dir, paste0(filename, '_', format(dateVec[d_idx], '%Y-%m-%d'), '.nc')),
+      file.path(glorys.dir, paste0(filename, '_', format(dateVec[d_idx], '%Y%m%d'), '.nc'))
+    )
+    cand <- cand[file.exists(cand)]
+    if (length(cand) > 0) {
+      first_nc <- cand[1]
+      break
+    }
+  }
+  if (is.null(first_nc)) first_nc <- dir(glorys.dir, pattern = "\\.nc$", full.names = TRUE)[1]
+  nc1 <- raster::brick(first_nc)
   tfile <- paste0(tempfile(), '.nc')
   raster::writeRaster(nc1, tfile)
   nc1 =  RNetCDF::open.nc(tfile)
@@ -155,7 +168,7 @@ calc.glorys <- function(pdt, filename, glorys.dir, focalDim = 9, dateVec, depthV
                       high = pred.high$fit,
                       depth = glorysDep)
     }
-    df$high <- pmax(df$high, df$low + 0.25)
+    df$high <- pmax(df$high, df$low + 1.0)
     
     # calculate sd using Le Bris neighbor method and focal()
     sd.i = array(NA, dim = c(dim(dat)[1:2], length(depIdx)))
@@ -169,39 +182,61 @@ calc.glorys <- function(pdt, filename, glorys.dir, focalDim = 9, dateVec, depthV
     
     # setup the likelihood array for each day. Will have length (dim[3]) = n depths
     lik.pdt = array(NA, dim = c(dim(dat)[1], dim(dat)[2], length(depIdx)))
+    active_b <- logical(length(depIdx))
+    surface_ocean <- is.finite(dat[,,depIdx[1]])
     
     for (b in 1:length(depIdx)) {
       #calculate the likelihood for each depth level, b
       lik.try <- try(likint3(dat[,,depIdx[b]], sd.i[,,b], df[b, 1], df[b, 2]), TRUE)
       
-      if (inherits(lik.try, 'try-error') || !any(which(lik.try > 0))){
+      if (inherits(lik.try, 'try-error') || !any(lik.try > 0, na.rm = TRUE)){
         low_b  <- pred.low$fit[b]
-        high_b <- max(pred.high$fit[b], low_b + 0.25)
+        high_b <- max(pred.high$fit[b], low_b + 1.0)
         if (is.finite(pred.low$se.fit[b]) && is.finite(pred.high$se.fit[b])) {
           low_b  <- max(-2, pred.low$fit[b] - pred.low$se.fit[b] * sqrt(n))
-          high_b <- max(low_b + 0.25, pred.high$fit[b] + pred.high$se.fit[b] * sqrt(n))
+          high_b <- max(low_b + 1.0, pred.high$fit[b] + pred.high$se.fit[b] * sqrt(n))
         }
         lik.try <- try(likint3(dat[,,depIdx[b]], sd.i[,,b], low_b, high_b), TRUE)
-        if (inherits(lik.try, 'try-error') || !any(which(lik.try > 0))){
+        if (inherits(lik.try, 'try-error') || !any(lik.try > 0, na.rm = TRUE)){
           lik.try <- dat[,,depIdx[b]] * 0
           warning(paste('Warning: likint3 failed after trying with and without SE prediction of depth-temp profiles. This is most likely a divergent integral for ', dateVec[i], '...', sep=''))
         }
+      }
+      if (any(lik.try > 0, na.rm = TRUE)) {
+        active_b[b] <- TRUE
+        valid_ocean <- is.finite(dat[,,depIdx[b]]) & is.finite(sd.i[,,b])
+        lik.try[valid_ocean & (is.na(lik.try) | lik.try < 1e-3)] <- 1e-3
+        lik.try[surface_ocean & !valid_ocean] <- 1e-2
+        lik.try[!surface_ocean] <- NA_real_
       }
       
       lik.pdt[,,b] <- lik.try
     }
     
-    lik.pdt0 <- lik.pdt
-    lik.pdt0[is.na(lik.pdt0)] <- 0
-    use.idx <- unique(which(lik.pdt0 > 0, arr.ind=TRUE)[,3])
+    use.idx <- which(active_b)
     
     if (length(use.idx) == 0) next
     
-    # multiply likelihood across depth levels for each day
-    lik.pdt <- apply(lik.pdt[,,use.idx, drop = FALSE], 1:2, FUN=function(x) prod(x, na.rm=FALSE))
+    # geometric mean across active depth levels for each day
+    log_sum <- matrix(0, nrow = dim(dat)[1], ncol = dim(dat)[2])
+    n_valid <- matrix(0L, nrow = dim(dat)[1], ncol = dim(dat)[2])
+    for (b in use.idx) {
+      lb <- lik.pdt[,,b]
+      ok <- is.finite(lb) & lb > 0
+      log_sum[ok] <- log_sum[ok] + log(lb[ok])
+      n_valid[ok] <- n_valid[ok] + 1L
+    }
+    lik.pdt <- matrix(NA_real_, nrow = dim(dat)[1], ncol = dim(dat)[2])
+    has_obs <- n_valid > 0L
+    lik.pdt[has_obs] <- exp(log_sum[has_obs] / n_valid[has_obs])
     m <- suppressWarnings(max(lik.pdt, na.rm = TRUE))
     if (is.finite(m) && m > 0) {
-      L.glorys[,,i] <- t(lik.pdt / m)
+      lik.mat <- t(lik.pdt / m)
+      if (all(dim(lik.mat) == dim(L.glorys)[1:2])) {
+        L.glorys[,,i] <- lik.mat
+      } else {
+        warning(paste0("Dimension mismatch for date ", dateVec[i], ": skipping slice."))
+      }
     }
     
   }

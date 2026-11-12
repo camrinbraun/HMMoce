@@ -112,8 +112,9 @@ hmm.filter <- function(g, L, K, P, m, maskL = FALSE, bound.thr = 0.1, minBounds 
       psi[t-1] <- sum(unlist(lapply(post, FUN = function(x) sum(x, na.rm = T))))
       #psi[t-1] <- sum(as.vector(post[[1]]), na.rm=T) + sum(as.vector(post[[2]]), na.rm=T)
       
+      denom <- if (is.finite(psi[t-1]) && psi[t-1] > 0) psi[t-1] else 1
       for (ii in 1:m){
-        phi[ii,t,,] <- post[[ii]] / (psi[t-1] + 1e-15)
+        phi[ii,t,,] <- post[[ii]] / denom
       }
       #phi[1,t,,] <- post1 / (psi[t-1] + 1e-15)
       #phi[2,t,,] <- post2 / (psi[t-1] + 1e-15)

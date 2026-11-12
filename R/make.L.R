@@ -25,21 +25,19 @@ make.L <- function(ras.list, iniloc, dateVec, maxDepth = NULL, bathy = NULL, kno
   L <- ras.list[[1]] * 0
   L[is.na(L)] <- 0
   
-  # check bathy mask requirements
-  if (!is.null(bathy) && !is.null(maxDepth) && any(maxDepth > 0)) {
-    if (length(maxDepth) != length(dateVec)){
+  # check bathy mask requirements (land mask always applied if bathy provided; depth mask if maxDepth > 0)
+  if (!is.null(bathy)) {
+    if (!is.null(maxDepth) && any(maxDepth > 0) && length(maxDepth) != length(dateVec)){
       stop('Error: Vector of daily maximum depths is not same length at date vector. Ensure mmd was zero-padded for days with NA data.')
     }
     
     bathy <- raster::readAll(bathy)
-    ## convert a negative bathy grid to positive to match expectations and mask land
-    if (raster::cellStats(bathy, 'min', na.rm=T) < 0){
+    ## convert negative ocean depths to positive and set land (<= 0 m depth) to NA
+    if (raster::cellStats(bathy, 'min', na.rm = TRUE) < 0){
       bathy <- bathy * -1
-      bathy[bathy < 0] <- NA
     }
+    bathy[bathy <= 0] <- NA
     bathy <- raster::resample(bathy, L)
-  } else {
-    bathy <- NULL
   }
   
   ## COMBINE THE LIKELIHOOD LAYERS
@@ -77,14 +75,24 @@ make.L <- function(ras.list, iniloc, dateVec, maxDepth = NULL, bathy = NULL, kno
       L[[i]] <- s_sum / raster::cellStats(s_sum, 'max', na.rm = TRUE)
     }
     
-    ## daily bathy mask
-    if (!is.null(bathy) && !is.null(maxDepth) && maxDepth[i] > 0) {
-      bathy.i <- maxDepth[i] * (1 - 20 / 100) # give 20% of max depth buffer for likelihood flexibility
-      L[[i]][bathy < bathy.i] <- 0
+    ## daily bathy mask (always zero out land; filter by depth when maxDepth[i] > 0)
+    if (!is.null(bathy)) {
+      L[[i]][is.na(bathy)] <- 0
+      if (!is.null(maxDepth) && maxDepth[i] > 0) {
+        bathy.i <- maxDepth[i] * (1 - 20 / 100) # give 20% of max depth buffer for likelihood flexibility
+        L[[i]][bathy < bathy.i] <- 0
+      }
     }
     
   }
   
+  #----------------------------------------------------------------------------------#
+  # MAKE ALL NA'S VERY TINY FOR THE CONVOLUTION ON INTERIOR DAYS
+  # Run BEFORE iniloc / known.locs so fixed start/end/known days stay exact point masses (1 vs 0)
+  #----------------------------------------------------------------------------------#
+  L[L <= 1e-15] <- 1e-15
+  L[is.na(L)] <- 1e-15
+
   ## ADD START/END LOCATIONS
   if(!is.null(iniloc)){
     # convert input date, lat, lon to likelihood surfaces
@@ -143,13 +151,6 @@ make.L <- function(ras.list, iniloc, dateVec, maxDepth = NULL, bathy = NULL, kno
     }
     
   }
-  
-  #----------------------------------------------------------------------------------#
-  # MAKE ALL NA'S VERY TINY FOR THE CONVOLUTION
-  # the previous steps may have taken care of this...
-  #----------------------------------------------------------------------------------#
-  L[L <= 1e-15] <- 1e-15
-  L[is.na(L)] <- 1e-15
   
   # CONVERT OUTPUT RASTER INTO AN ARRAY
   L <- aperm(raster::as.array(raster::flip(L, direction = 'y')), c(3, 2, 1))

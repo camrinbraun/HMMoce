@@ -18,19 +18,12 @@
 #' likint3(env.grid, 2, 55, 70)
 
 likint3 <- function(w, wsd, minT, maxT){
-  #lwr <- minT - .75 * (maxT - minT)
-  #upr <- maxT + .75 * (maxT - minT)
-  #widx = w >= minT-1 & w <= maxT+1 & !is.na(w)
-  #widx = w >= minT-1 & w <= maxT+1 & 
   widx <- !is.na(w)
-  wdf = data.frame(w = as.vector(w[widx]), wsd = as.vector(wsd[widx]))
-  wdf$wsd[is.na(wdf$wsd)] = 1e-3
-  # wint = apply(wdf, 1, function(x) pracma::integral(dnorm, minT, maxT, mean = x[1], sd = x[2]))
-  wint = apply(wdf, 1, function(x) stats::integrate(stats::dnorm, 
-                                                    # !!!!!! *2 ????
-                                                    # minT, maxT, mean = x[1], sd = x[2]*2 )$value)
-                                                    minT, maxT, mean = x[1], sd = x[2])$value)
-  w = w * 0
-  w[widx] = wint
-  w
+  if (!any(widx)) return(w * 0)
+  wsd_v <- if (length(wsd) == 1L) rep(wsd, sum(widx)) else as.vector(wsd[widx])
+  wsd_v[is.na(wsd_v) | wsd_v <= 0] <- 1e-3
+  w_out <- w * 0
+  w_out[widx] <- stats::pnorm(maxT, mean = as.vector(w[widx]), sd = wsd_v) -
+                 stats::pnorm(minT, mean = as.vector(w[widx]), sd = wsd_v)
+  w_out
 } 
