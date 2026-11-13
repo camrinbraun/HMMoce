@@ -219,6 +219,8 @@ process_cobia_tag <- function(instrument_id) {
   print(iniloc)
 
   # 4. Extract Observations from eTUFF -----------------------------------------
+  etuff$etuff <- etuff$etuff %>%
+    dplyr::filter(DateTime >= tag & DateTime < (pop + 86400))
 
   ## 4.1 Daily SST
   if ("tempMax" %in% names(etuff$etuff)) {

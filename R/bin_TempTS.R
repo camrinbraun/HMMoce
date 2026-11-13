@@ -32,7 +32,8 @@ bin_TempTS <- function(ts, out_dates, bin_res = 8) {
     dplyr::mutate(
       time_idx = findInterval(Date, out_dates),
       Depth = round(Depth / bin_res) * bin_res
-    )
+    ) %>%
+    dplyr::filter(time_idx >= 1L & time_idx <= length(out_dates) & Date <= (max(out_dates) + 86400))
   
   # Group, summarize, and filter in a single pipeline
   pdt_rec <- ts %>%

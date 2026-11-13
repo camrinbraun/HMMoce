@@ -179,6 +179,8 @@ message("Deployment spans: ", format(tag, "%Y-%m-%d"), " to ", format(pop, "%Y-%
 print(iniloc)
 
 # 4. Extract Observations from eTUFF -------------------------------------------
+etuff$etuff <- etuff$etuff %>%
+  dplyr::filter(DateTime >= tag & DateTime < (pop + 86400))
 
 ## 4.1 Daily SST (Sea Surface Temperature)
 if ("tempMax" %in% names(etuff$etuff)) {

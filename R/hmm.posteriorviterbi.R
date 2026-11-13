@@ -52,8 +52,8 @@ if (approach == "joint") {
     
     ## set up the dims for the s output needed in viterbi
     T <- dim(s)[2] # dimension of time
-    row <- dim(g$lon)[1] # nrows
-    col <- dim(g$lon)[2] # ncols
+    col <- dim(s)[3] # ncols
+    row <- dim(s)[4] # nrows
     
     s_viterbi <- array(0, dim = c(1, T, col, row))
     for (tt in 1:T){
@@ -123,7 +123,7 @@ if (approach == "joint") {
   # Generate kernels normally
   if (length(pars) == 4){ # if two-state model
     sigmas = pars[1:2]
-    sizes = rep(ceiling(sigmas[1]*4),2)
+    sizes = rep(ceiling(sigmas[1]*6),2)
     pb = pars[3:4]
     muadvs = c(0,0)
     K1 <- gausskern.pg(sizes[1], sigmas[1], muadv=muadvs[1])
@@ -131,7 +131,7 @@ if (approach == "joint") {
     K <- list(K1,K2)
   } else if (length(pars) == 1){ # if one-state model
     sigmas = pars[1]
-    sizes = rep(ceiling(sigmas[1]*4),2)
+    sizes = rep(ceiling(sigmas[1]*6),2)
     pb = NULL
     muadvs = c(0)
     K1 <- gausskern.pg(sizes[1], sigmas[1], muadv=muadvs[1])
@@ -195,57 +195,58 @@ if (approach == "joint") {
     kern.offset<- floor(kern.dim/2) #Value subtracted/added from each x and y when kernel fully fits into larger matrix
     
     #For each grid cell, find which previous day's grid cell has highest probability of transition
-    #x<- 1 #Look at specific grid cell
-    for(x in 1:cols.vit){
-      #y<- 1 #Look at specific grid cell
-      for(y in 1:rows.vit){
-        if(!is.na(mpt.calc[y,x,i-1,1])){ #For valid grid cells
-          temp.mat<- matrix(0,rows.vit,cols.vit)
-          if(y>kern.y.lower & y < kern.y.upper & x>kern.x.lower & x < kern.x.upper){ #if kernel fully within larger matrix
-            #place kernel in template so that the kernel is centered on the grid cell:
-            temp.mat[(y-kern.offset):(y+kern.offset),(x-kern.offset):(x+kern.offset)]<- kern
-          } else { #Modify kernel so that it fits in study area with kernel still centered on grid cell
-            if(y>kern.y.lower & y< kern.y.upper) {ymin<- y-kern.offset; ymax<- y+kern.offset}
-            if(y<=kern.y.lower) {ymin<- 1; y.offset<- kern.y.lower-y; kern.y<- (1:kern.dim)[-(1:y.offset)];ymax<- y+kern.offset}
-            if(y>= kern.y.upper){ymax<- rows.vit; y.offset<- y-kern.y.upper; kern.y<- 1:(kern.dim-y.offset);ymin<- y-kern.offset}
-            if (x>kern.x.lower & x < kern.x.upper){xmin<- x-kern.offset; xmax<- x+kern.offset}
-            if(x<=kern.x.lower) {xmin<- 1; x.offset<- kern.x.lower-x;kern.x<- (1:kern.dim)[-(1:x.offset)];xmax<- x+kern.offset}
-            if(x>= kern.x.upper){xmax<- cols.vit; x.offset<- x-kern.x.upper; kern.x<- 1:(kern.dim-x.offset);xmin<- x-kern.offset}
-            if(length(ymin:ymax)==kern.dim){ y.offset<- 0; kern.y<- 1:kern.dim}
-            if(length(xmin:xmax)==kern.dim){ x.offset<- 0; kern.x<- 1:kern.dim}
-            temp.mat[ymin:ymax,xmin:xmax]<- kern[kern.y,kern.x]
-          }
-          #image.plot(reverse(temp.mat)) #for i = 2, only one previous grid cell had probability, shows kernel centered on release loc
-          temp.update<- L.vit[,,i,1]*temp.mat #Multiply diffusion kernel by likelihood
-          
-          #image.plot(reverse(temp.update)) #for i=2, cells on right side have more probability
-          if(any(temp.update>0)){
-            update.index<- which(row(temp.update)==y & col(temp.update)==x) #index number of grid cell in focus
-            update.prob<- log(temp.update) + mpt.calc[y,x,i-1,2]  #cumulative probability of cells in temp.update >0
-            
-            if(is.matrix(which(temp.update>0,arr.ind=T))){
-              update.cells<- which(temp.update>0,arr.ind=T) #Cells in temp.update with prob>0
-            } else { # if update is vector, ensure matrix format
-              update.cells <- arrayInd(which(temp.update>0,arr.ind=T),dim(temp.update));colnames(update.cells) <- c("row","col")
-            }
-            
-            #This is the step (below) that could potentially be done with parallel computing
-            #As you are trying to find the grid cell in temp.update that has the highest cumulative probability
-            #So this step does not rely on sequential calculations
-            for(j in 1:nrow(update.cells)){ #Loop through all cells in temp.update with prob>0
-              if(is.na(mpt.calc[update.cells[j,1],update.cells[j,2],i,1])){#If that cell probability is NA
-                mpt.calc[update.cells[j,1],update.cells[j,2],i,1]<- update.index #Add the index number of focus grid cell
-                mpt.calc[update.cells[j,1],update.cells[j,2],i,2]<- update.prob[update.cells[j,1],update.cells[j,2]] #update cumulative probability
-              }
-              
-              #If there is existing probability in that cell, and that probability is less than the probability in temp.update
-              if(mpt.calc[update.cells[j,1],update.cells[j,2],i,2] < update.prob[update.cells[j,1],update.cells[j,2]]){
-                mpt.calc[update.cells[j,1],update.cells[j,2],i,1]<- update.index #Add the index number of the focus grid cell
-                mpt.calc[update.cells[j,1],update.cells[j,2],i,2]<- update.prob[update.cells[j,1],update.cells[j,2]] #update cumulative probability
-              }
-            }
+    L_day <- L.vit[,,i,1]
+    valid_prev <- which(!is.na(mpt.calc[,,i-1,1]), arr.ind = TRUE)
+    if (nrow(valid_prev) > 0) {
+      for (k_idx in seq_len(nrow(valid_prev))) {
+        y <- valid_prev[k_idx, 1]
+        x <- valid_prev[k_idx, 2]
+        if (y > kern.y.lower && y < kern.y.upper) {
+          ymin <- y - kern.offset; ymax <- y + kern.offset; kern.y <- 1:kern.dim
+        } else if (y <= kern.y.lower) {
+          ymin <- 1; y.offset <- kern.y.lower - y; kern.y <- (1:kern.dim)[-(1:y.offset)]; ymax <- y + kern.offset
+        } else {
+          ymax <- rows.vit; y.offset <- y - kern.y.upper; kern.y <- 1:(kern.dim - y.offset); ymin <- y - kern.offset
+        }
+        if (x > kern.x.lower && x < kern.x.upper) {
+          xmin <- x - kern.offset; xmax <- x + kern.offset; kern.x <- 1:kern.dim
+        } else if (x <= kern.x.lower) {
+          xmin <- 1; x.offset <- kern.x.lower - x; kern.x <- (1:kern.dim)[-(1:x.offset)]; xmax <- x + kern.offset
+        } else {
+          xmax <- cols.vit; x.offset <- x - kern.x.upper; kern.x <- 1:(kern.dim - x.offset); xmin <- x - kern.offset
+        }
+        if (length(ymin:ymax) == kern.dim) kern.y <- 1:kern.dim
+        if (length(xmin:xmax) == kern.dim) kern.x <- 1:kern.dim
+        
+        sub_upd <- L_day[ymin:ymax, xmin:xmax, drop = FALSE] * kern[kern.y, kern.x, drop = FALSE]
+        pos_mask <- !is.na(sub_upd) & (sub_upd > 0)
+        if (any(pos_mask)) {
+          update.index <- y + (x - 1L) * rows.vit
+          cand_prob <- log(sub_upd) + mpt.calc[y, x, i-1, 2]
+          cur_idx  <- mpt.calc[ymin:ymax, xmin:xmax, i, 1]
+          cur_prob <- mpt.calc[ymin:ymax, xmin:xmax, i, 2]
+          better <- pos_mask & (is.na(cur_idx) | (cand_prob > cur_prob))
+          if (any(better)) {
+            cur_idx[better]  <- update.index
+            cur_prob[better] <- cand_prob[better]
+            mpt.calc[ymin:ymax, xmin:xmax, i, 1] <- cur_idx
+            mpt.calc[ymin:ymax, xmin:xmax, i, 2] <- cur_prob
           }
         }
+      }
+    }
+    # Fallback if bounded kernel support did not reach any positive cell in L_day
+    if (all(is.na(mpt.calc[,,i,1]))) {
+      best_prev_lin <- which.max(mpt.calc[,,i-1,2])
+      if (length(best_prev_lin) > 0) {
+        bp <- arrayInd(best_prev_lin[1], c(rows.vit, cols.vit))
+        pos_l <- which(!is.na(L_day) & L_day > 0, arr.ind = TRUE)
+        if (nrow(pos_l) == 0) pos_l <- bp
+        d2 <- (pos_l[, 1] - bp[1, 1]) ^ 2 + (pos_l[, 2] - bp[1, 2]) ^ 2
+        sig_eff <- max(sigmas[1], 1)
+        lp <- log(pmax(L_day[pos_l], 1e-300)) - 0.5 * (d2 / (sig_eff ^ 2)) + mpt.calc[bp[1, 1], bp[1, 2], i-1, 2]
+        mpt.calc[,,i,1][pos_l] <- best_prev_lin[1]
+        mpt.calc[,,i,2][pos_l] <- lp
       }
     }
     print (i)
@@ -430,65 +431,58 @@ if (approach == "separate") {
     kern.offset<- floor(kern.dim/2) #Value subtracted/added from each x and y when kernel fully fits into larger matrix
     
     #For each grid cell, find which previous day's grid cell has highest probability of transition
-    #x<- 1 #Look at specific grid cell
-    for(x in 1:cols.vit){ 
-      #y<- 1 #Look at specific grid cell
-      for(y in 1:rows.vit){ 
-        if(!is.na(mpt.calc[y,x,i-1,1])){ #For valid grid cells
-          temp.mat<- matrix(0,rows.vit,cols.vit)
-          if(y>kern.y.lower & y < kern.y.upper & x>kern.x.lower & x < kern.x.upper){ #if kernel fully within larger matrix
-            #place kernel in template so that the kernel is centered on the grid cell:
-            temp.mat[(y-kern.offset):(y+kern.offset),(x-kern.offset):(x+kern.offset)]<- kern 
-          } else { #Modify kernel so that it fits in study area with kernel still centered on grid cell 
-            if(y>kern.y.lower & y< kern.y.upper) {ymin<- y-kern.offset; ymax<- y+kern.offset}
-            if(y<=kern.y.lower) {ymin<- 1; y.offset<- kern.y.lower-y; kern.y<- (1:kern.dim)[-(1:y.offset)];ymax<- y+kern.offset}
-            if(y>= kern.y.upper){ymax<- rows.vit; y.offset<- y-kern.y.upper; kern.y<- 1:(kern.dim-y.offset);ymin<- y-kern.offset}
-            if (x>kern.x.lower & x < kern.x.upper){xmin<- x-kern.offset; xmax<- x+kern.offset}
-            if(x<=kern.x.lower) {xmin<- 1; x.offset<- kern.x.lower-x;kern.x<- (1:kern.dim)[-(1:x.offset)];xmax<- x+kern.offset} 
-            if(x>= kern.x.upper){xmax<- cols.vit; x.offset<- x-kern.x.upper; kern.x<- 1:(kern.dim-x.offset);xmin<- x-kern.offset} 
-            if(length(ymin:ymax)==kern.dim){ y.offset<- 0; kern.y<- 1:kern.dim}
-            if(length(xmin:xmax)==kern.dim){ x.offset<- 0; kern.x<- 1:kern.dim}
-            temp.mat[ymin:ymax,xmin:xmax]<- kern[kern.y,kern.x]
-          }
-          #image.plot(reverse(temp.mat)) #for i = 2, only one previous grid cell had probability, shows kernel centered on release loc
-          if (behavs.vit==1) {
-            temp.update<- L.vit[,,i,1]*temp.mat #Multiply diffusion kernel by likelihood
-          } else {
-            if (sv[i]==1) {
-              temp.update<- L.vit[,,i,1]*temp.mat #Multiply migratory diffusion kernel by likelihood
-            } else {
-              temp.update<- L.vit[,,i,2]*temp.mat #Multiply resident diffusion kernel by likelihood
-            }
-          }
-          
-          #image.plot(reverse(temp.update)) #for i=2, cells on right side have more probability
-          if(any(temp.update>0)){
-            update.index<- which(row(temp.update)==y & col(temp.update)==x) #index number of grid cell in focus
-            update.prob<- log(temp.update) + mpt.calc[y,x,i-1,2]  #cumulative probability of cells in temp.update >0
-            
-            if(is.matrix(which(temp.update>0,arr.ind=T))){
-              update.cells<- which(temp.update>0,arr.ind=T) #Cells in temp.update with prob>0
-            } else { # if update is vector, ensure matrix format
-              update.cells <- arrayInd(which(temp.update>0,arr.ind=T),dim(temp.update));colnames(update.cells) <- c("row","col")
-            }
-            
-            #This is the step (below) that could potentially be done with parallel computing
-            #As you are trying to find the grid cell in temp.update that has the highest cumulative probability
-            #So this step does not rely on sequential calculations
-            for(j in 1:nrow(update.cells)){ #Loop through all cells in temp.update with prob>0
-              if(is.na(mpt.calc[update.cells[j,1],update.cells[j,2],i,1])){#If that cell probability is NA
-                mpt.calc[update.cells[j,1],update.cells[j,2],i,1]<- update.index #Add the index number of focus grid cell
-                mpt.calc[update.cells[j,1],update.cells[j,2],i,2]<- update.prob[update.cells[j,1],update.cells[j,2]] #update cumulative probability
-              } 
-              
-              #If there is existing probability in that cell, and that probability is less than the probability in temp.update
-              if(mpt.calc[update.cells[j,1],update.cells[j,2],i,2] < update.prob[update.cells[j,1],update.cells[j,2]]){
-                mpt.calc[update.cells[j,1],update.cells[j,2],i,1]<- update.index #Add the index number of the focus grid cell
-                mpt.calc[update.cells[j,1],update.cells[j,2],i,2]<- update.prob[update.cells[j,1],update.cells[j,2]] #update cumulative probability
-              }
-            }
+    L_day <- if (behavs.vit == 1 || sv[i] == 1) L.vit[,,i,1] else L.vit[,,i,2]
+    valid_prev <- which(!is.na(mpt.calc[,,i-1,1]), arr.ind = TRUE)
+    if (nrow(valid_prev) > 0) {
+      for (k_idx in seq_len(nrow(valid_prev))) {
+        y <- valid_prev[k_idx, 1]
+        x <- valid_prev[k_idx, 2]
+        if (y > kern.y.lower && y < kern.y.upper) {
+          ymin <- y - kern.offset; ymax <- y + kern.offset; kern.y <- 1:kern.dim
+        } else if (y <= kern.y.lower) {
+          ymin <- 1; y.offset <- kern.y.lower - y; kern.y <- (1:kern.dim)[-(1:y.offset)]; ymax <- y + kern.offset
+        } else {
+          ymax <- rows.vit; y.offset <- y - kern.y.upper; kern.y <- 1:(kern.dim - y.offset); ymin <- y - kern.offset
+        }
+        if (x > kern.x.lower && x < kern.x.upper) {
+          xmin <- x - kern.offset; xmax <- x + kern.offset; kern.x <- 1:kern.dim
+        } else if (x <= kern.x.lower) {
+          xmin <- 1; x.offset <- kern.x.lower - x; kern.x <- (1:kern.dim)[-(1:x.offset)]; xmax <- x + kern.offset
+        } else {
+          xmax <- cols.vit; x.offset <- x - kern.x.upper; kern.x <- 1:(kern.dim - x.offset); xmin <- x - kern.offset
+        }
+        if (length(ymin:ymax) == kern.dim) kern.y <- 1:kern.dim
+        if (length(xmin:xmax) == kern.dim) kern.x <- 1:kern.dim
+        
+        sub_upd <- L_day[ymin:ymax, xmin:xmax, drop = FALSE] * kern[kern.y, kern.x, drop = FALSE]
+        pos_mask <- !is.na(sub_upd) & (sub_upd > 0)
+        if (any(pos_mask)) {
+          update.index <- y + (x - 1L) * rows.vit
+          cand_prob <- log(sub_upd) + mpt.calc[y, x, i-1, 2]
+          cur_idx  <- mpt.calc[ymin:ymax, xmin:xmax, i, 1]
+          cur_prob <- mpt.calc[ymin:ymax, xmin:xmax, i, 2]
+          better <- pos_mask & (is.na(cur_idx) | (cand_prob > cur_prob))
+          if (any(better)) {
+            cur_idx[better]  <- update.index
+            cur_prob[better] <- cand_prob[better]
+            mpt.calc[ymin:ymax, xmin:xmax, i, 1] <- cur_idx
+            mpt.calc[ymin:ymax, xmin:xmax, i, 2] <- cur_prob
           }
         }
+      }
+    }
+    # Fallback if bounded kernel support did not reach any positive cell in L_day
+    if (all(is.na(mpt.calc[,,i,1]))) {
+      best_prev_lin <- which.max(mpt.calc[,,i-1,2])
+      if (length(best_prev_lin) > 0) {
+        bp <- arrayInd(best_prev_lin[1], c(rows.vit, cols.vit))
+        pos_l <- which(!is.na(L_day) & L_day > 0, arr.ind = TRUE)
+        if (nrow(pos_l) == 0) pos_l <- bp
+        d2 <- (pos_l[, 1] - bp[1, 1]) ^ 2 + (pos_l[, 2] - bp[1, 2]) ^ 2
+        sig_eff <- max(sigmas[1], 1)
+        lp <- log(pmax(L_day[pos_l], 1e-300)) - 0.5 * (d2 / (sig_eff ^ 2)) + mpt.calc[bp[1, 1], bp[1, 2], i-1, 2]
+        mpt.calc[,,i,1][pos_l] <- best_prev_lin[1]
+        mpt.calc[,,i,2][pos_l] <- lp
       }
     }
     print (i)
