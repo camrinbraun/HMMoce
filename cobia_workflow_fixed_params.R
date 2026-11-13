@@ -141,7 +141,7 @@ get_cobia_meta <- function(tag_id, dir = base_dir) {
 }
 
 # Select target tag ID (e.g. "36419", "36420", "36421", "36422", "40302", "49157", "55550", "55552")
-instrument_id <- "40302"
+instrument_id <- "36419"
 tag_meta <- get_cobia_meta(instrument_id, base_dir)
 excel_file <- tag_meta$excel_file
 
@@ -598,16 +598,16 @@ m_states <- 2
 combos <- list(
   ohc_light        = c("ohc", "light"),
   glorys_light     = c("glorys", "light"),
-  glorys_light_sst = c("glorys", "light", "sst"),
-  ohc_light_sst    = c("ohc", "light", "sst"),
-  pdt_light       = c("pdt", "light"),
+  # glorys_light_sst = c("glorys", "light", "sst"),
+  # ohc_light_sst    = c("ohc", "light", "sst"),
+  # pdt_light       = c("pdt", "light"),
   ohc             = c("ohc"),
-  glorys          = c("glorys"),
-  light           = c("light"),
-  light_bathy     = c("light", "bathy"),
-  light_bathy_sst = c("light", "bathy", "sst"),
-  light_ohc_bathy = c("light", "bathy", "ohc"),
-  light_pdt_bathy = c("light", "bathy", "pdt")
+  glorys          = c("glorys")
+  # light           = c("light"),
+  # light_bathy     = c("light", "bathy"),
+  # light_bathy_sst = c("light", "bathy", "sst"),
+  # light_ohc_bathy = c("light", "bathy", "ohc"),
+  # light_pdt_bathy = c("light", "bathy", "pdt")
 )
 combos <- combos[sapply(combos, function(x) all(x %in% names(L.res$L.rasters)))]
 
