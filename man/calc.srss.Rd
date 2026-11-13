@@ -17,12 +17,12 @@ calc.srss(light = NULL, locs.grid, dateVec, res = 1, focalDim = 3)
 resolution (e.g. res = .25 for 1/4 deg) takes considerably longer to
 compute and may not be appropriate for most scenarios}
 
-\item{focalDim}{is integer for dimensions of raster::focal used to calculate 
+\item{focalDim}{is integer for dimensions of terra::focal used to calculate 
 sd() of SRSS grid cell. Recommend focalDim = 3 if res=1 and focalDim = 9 if
 res=0.25.}
 }
 \value{
-L is a raster of dim(lon x lat x dateVec) containing likelihood
+L is a SpatRaster of dim(lon x lat x dateVec) containing likelihood
   surfaces for each time point
 }
 \description{

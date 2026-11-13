@@ -2,12 +2,14 @@ Package: HMMoce
 Type: Package
 Title: Improved Analysis of Marine Animal Movement Data Using Hidden Markov
     Models
-Version: 1.1.0
-Date: 2020-05-13
+Version: 2.0.0
+Date: 2026-11-13
 Authors@R: c(
               person("Camrin", "Braun", email = "camrin.braun@gmail.com", role = c("aut","cre")),
               person("Benjamin", "Galuardi", email = "drdrumfish@gmail.com", role = c("aut")),
               person("Paul", "Gatti", email = "Paul.Gatti@mi.mun.ca", role = c("aut")),
+              person("Martin", "Arostegui", middle = "C.", email = "martin.arostegui@whoi.edu", role = c("aut"), comment = "https://www.whoi.edu/profile/martin.arostegui/"),
+              person(given = c("Martin", "C."), family = "Arostegui", email = "martin.arostegui@whoi.edu", role = c("aut"), comment = "https://www.whoi.edu/profile/martin.arostegui/"),
               person("Benjamin", "Jones", role = c("ctb"), comment = 'Contributed to earlier version of some of the download functions.'),
               person("Martin", "Pedersen", role = c("ctb"), comment = 'Developed an earlier version of some of the HMM framework and helper functions.')
               )
@@ -18,30 +20,41 @@ Description: Improved analysis of marine animal movement data by implementing
     marine animals, typically fish) to three-dimensional oceanographic data.
 License: MIT + file LICENSE
 Depends:
-    R (>= 2.10),
+    R (>= 4.1.0)
 Imports:
+    curl,
+    doParallel,
     dplyr,
     fields,
     foreach,
+    graphics,
+    grDevices,
     imager,
     locfit,
     lubridate,
-    terra,
-    RColorBrewer,
-    sf,
-    RNetCDF,
-    sp,
+    methods,
     parallel,
-    doParallel,
-    curl,
-    methods
+    RColorBrewer,
+    RNetCDF,
+    sf,
+    sp,
+    stats,
+    terra,
+    utils
 Suggests:
-    knitr,
-    rmarkdown,
-    png,
-    grid,
+    data.table,
     GA,
+    grid,
+    knitr,
+    png,
+    readxl,
+    reshape2,
+    rmarkdown,
+    RTMB,
+    tags2etuff,
     testthat
+Remotes:
+    camrinbraun/tags2etuff
 URL: http://www.camrinbraun.com/
 BugReports: https://github.com/camrinbraun/HMMoce/issues
 LazyData: true

@@ -5,7 +5,7 @@ data using hidden Markov models
 <!-- README.md is generated from README.Rmd. Please edit that file -->
 
 **Camrin D. Braun<sup>1,2</sup>\*, Benjamin Galuardi<sup>3,4</sup>, Paul
-Gatti<sup>5</sup>, Simon R. Thorrold<sup>2</sup>**
+Gatti<sup>5</sup>, [Martin C. Arostegui](https://www.whoi.edu/profile/martin.arostegui/)<sup>2</sup>, Simon R. Thorrold<sup>2</sup>**
 
 1.  Massachusetts Institute of Technology-Woods Hole Oceanographic
     Institution Joint Program in Oceanography/Applied Ocean Science and
@@ -19,6 +19,17 @@ Gatti<sup>5</sup>, Simon R. Thorrold<sup>2</sup>**
     Gloucester, MA 01930
 5.  Centre for Fisheries Ecosystems Research, Fisheries and Marine
     Institute of Memorial University of Newfoundland
+
+## Update 2026-11
+
+Version 2.0.0 
+Major modernization, accuracy, and performance updates:
+
+- **Modern Spatial Stack (`terra` & `sf`):** Replaced retired spatial packages (`raster`, `rgdal`, `rgeos`, `maptools`) with `terra` (`SpatRaster`) and `sf` across grid setup, resampling, bathymetry/environmental masking, contour generation (`getCtr_sf`), and all likelihood functions.
+- **GLORYS Reanalysis & Tag Ingestion:** Added/updated 3D GLORYS temperature-depth profile (`calc.glorys`, `calc.glorys.par`), GLORYS ocean heat content (`calc.ohc.glorys`, `calc.ohc.glorys.par`), GLORYS surface SST (`calc.sst.par.glorys`), combined PDT likelihood helpers (`make.L.pdt`), and Microwave Telemetry archival XLS-to-eTUFF conversion (`microwave_to_etuff`).
+- **HMM Filter, Smoother & Likelihood Refinements:** Improved endpoint anchoring, backward smoother normalization, and convolution speed in `hmm.filter` and `hmm.smoother`; updated multiplicative daily likelihood combination (`make.L`, `make.L.mult`) with empty-layer, light, and bathymetry guards; added fast/`RTMB` parameter optimization support in `opt.params`; and fixed graphics device handling in `plotHMM`.
+- **Fast Posterior Viterbi (`hmm.posteriorviterbi`):** Vectorized pure-R Viterbi track estimation (~20–30x faster with identical output) using separable 1D max-plus passes and active bounding-box shifts across 1- and 2-state (`'separate'` and `'joint'`) modes.
+- **Testing & Package Maintenance:** Standardized `R/*.R` filenames, refreshed `roxygen2` documentation, and added a `testthat` unit test suite covering grids, kernels, likelihoods, `bin_TempTS`, `hmm.filter`/`hmm.smoother`, `opt.params`, and `hmm.posteriorviterbi`.
 
 ## Update 2020-05-13
 

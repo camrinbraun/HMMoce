@@ -28,7 +28,7 @@ function knows where to get the env data.}
 
 \item{glorys.dir}{directory of downloaded glorys (or other) data}
 
-\item{focalDim}{is integer for dimensions of raster::focal used to calculate 
+\item{focalDim}{is integer for dimensions of terra::focal used to calculate 
 sd() of temperature grid cell. Recommend focalDim = 9 for glorys data at 
 0.08deg resolution.}
 
@@ -43,7 +43,7 @@ have!}
 \item{flip_y}{is logical indicating whether or not to flip the resulting likelihood in the y. Set this to true if output likelihoods are upside down.}
 }
 \value{
-a raster brick of glorys profile likelihood
+a terra SpatRaster of glorys profile likelihood
 }
 \description{
 Calculate glorys profile likelihood surface in parallel

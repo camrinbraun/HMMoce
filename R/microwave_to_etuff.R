@@ -3,13 +3,6 @@
 # Robust converter from Microwave Telemetry XLS/XLSX files to standardized eTUFF
 # ==============================================================================
 
-library(readxl)
-library(dplyr)
-library(reshape2)
-library(data.table)
-library(lubridate)
-library(tags2etuff)
-
 #' Convert Microwave Telemetry XLS/XLSX to eTUFF file
 #'
 #' @param excel_file Path to Microwave .xls or .xlsx file
@@ -19,6 +12,11 @@ library(tags2etuff)
 #' @return An object of class \code{etuff}
 #' @export
 microwave_to_etuff <- function(excel_file, meta_row, out_file = NULL, obs_types_url = NULL) {
+  for (pkg in c("readxl", "reshape2", "data.table", "tags2etuff")) {
+    if (!requireNamespace(pkg, quietly = TRUE)) {
+      stop("Package '", pkg, "' is required for microwave_to_etuff().", call. = FALSE)
+    }
+  }
   
   if (!file.exists(excel_file)) {
     stop("Excel file not found: ", excel_file)

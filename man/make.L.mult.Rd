@@ -4,7 +4,14 @@
 \alias{make.L.mult}
 \title{Combine individual source likelihoods}
 \usage{
-make.L.mult(ras.list, iniloc, dateVec, maxDepth, bathy, known.locs = NULL)
+make.L.mult(
+  ras.list,
+  iniloc,
+  dateVec,
+  maxDepth = NULL,
+  bathy = NULL,
+  known.locs = NULL
+)
 }
 \arguments{
 \item{ras.list}{a list of likelihood rasters}

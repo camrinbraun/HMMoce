@@ -81,7 +81,7 @@ hmm.smoother1.exp <- function(f, L, K, P=NULL, bathy, n.div, mini.idx, m=m, sigm
     
     RAT <- smooth[,t,,] / (f$pred[,t,,] + 1e-15)
     ## preserve the same array dims even if m == 1
-    if (m == 1) RAT <- abind::abind(RAT, RAT, along = 0)[1,,, drop=F]
+    if (m == 1) RAT <- array(RAT, dim = c(1L, dim(RAT)))
 
     for (ii in 1:m){
       

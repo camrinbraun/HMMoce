@@ -119,7 +119,7 @@ hmm.smoother1 <- function(f, L, K, P=NULL){
     
     RAT <- smooth[,t,,] / pmax(f$pred[,t,,], 1e-300)
     ## preserve the same array dims even if m == 1
-    if (m == 1) RAT <- abind::abind(RAT, RAT, along = 0)[1,,, drop=F]
+    if (m == 1) RAT <- array(RAT, dim = c(1L, dim(RAT)))
 
     for (ii in 1:m){
       # convolve today's smoother prediction with movement kernel

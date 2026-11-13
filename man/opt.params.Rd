@@ -26,7 +26,7 @@ opt.params(
 
 \item{L}{is likelihood array output from \code{make.L}}
 
-\item{alg.opt}{character indicating which optimization algorithm to use. Options are "optim", "nlminb", "ga", "ga_optim".}
+\item{alg.opt}{character indicating which optimization algorithm to use. Options are "optim", "nlminb", "ga", "ga_optim", "rtmb", "fast".}
 
 \item{reformat}{logical indicating whether to reformat and thus standardize output of the optimization algorithms}
 
