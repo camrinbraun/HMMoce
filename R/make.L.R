@@ -51,6 +51,18 @@ make.L <- function(ras.list, iniloc, dateVec, maxDepth = NULL, bathy = NULL, kno
     bathy_mat <- terra::as.matrix(bathy_sr, wide = TRUE)
   }
   
+  # Infer fallback ocean mask for days with zero active observations across all rasters
+  ocean_fallback <- if (!is.null(bathy_mat)) {
+    !is.na(bathy_mat)
+  } else {
+    ever_pos <- matrix(FALSE, nrow = nr, ncol = nc)
+    for (bb in seq_len(n_ras)) {
+      a_b <- arr_list[[bb]]
+      ever_pos <- ever_pos | (rowSums(!is.na(a_b) & (a_b > 0), dims = 2L) > 0L)
+    }
+    if (any(ever_pos)) ever_pos else matrix(TRUE, nrow = nr, ncol = nc)
+  }
+
   L_arr <- array(0, dim = c(nr, nc, T_len))
   
   ## COMBINE THE LIKELIHOOD LAYERS IN MEMORY
@@ -64,7 +76,10 @@ make.L <- function(ras.list, iniloc, dateVec, maxDepth = NULL, bathy = NULL, kno
       }
     }
     
-    if (length(active_mats) == 0L) next
+    if (length(active_mats) == 0L) {
+      L_arr[,,i] <- as.numeric(ocean_fallback)
+      next
+    }
     
     if (length(active_mats) == 1L){
       day_mat <- active_mats[[1L]]

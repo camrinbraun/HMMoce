@@ -71,20 +71,22 @@ microwave_to_etuff <- function(excel_file, meta_row, out_file = NULL, obs_types_
   if ("Press Data" %in% sheet_names && "Temp Data" %in% sheet_names) {
     message("-> Processing Depth and Temperature time series...")
     
-    p_raw <- readxl::read_excel(excel_file, sheet = "Press Data", skip = 1)
+    p_raw <- readxl::read_excel(excel_file, sheet = "Press Data", skip = 1, guess_max = 100000)
+    p_lim <- if (ncol(p_raw) >= 6) (!is.na(p_raw[[5]]) | !is.na(p_raw[[6]])) else rep(FALSE, nrow(p_raw))
     p_df <- data.frame(
       DateTime = as.POSIXct(p_raw[[1]], tz = "UTC"),
-      pressure = as.numeric(p_raw[[2]]),
-      depth = abs(as.numeric(p_raw[[3]]))
+      pressure = ifelse(p_lim, NA_real_, as.numeric(p_raw[[2]])),
+      depth = ifelse(p_lim, NA_real_, abs(as.numeric(p_raw[[3]])))
     )
-    p_df <- p_df[!is.na(p_df$DateTime), ]
+    p_df <- p_df[!is.na(p_df$DateTime) & (!is.na(p_df$pressure) | !is.na(p_df$depth)), ]
     
-    t_raw <- readxl::read_excel(excel_file, sheet = "Temp Data", skip = 1)
+    t_raw <- readxl::read_excel(excel_file, sheet = "Temp Data", skip = 1, guess_max = 100000)
+    t_lim <- if (ncol(t_raw) >= 6) (!is.na(t_raw[[5]]) | !is.na(t_raw[[6]])) else rep(FALSE, nrow(t_raw))
     t_df <- data.frame(
       DateTime = as.POSIXct(t_raw[[1]], tz = "UTC"),
-      temperature = as.numeric(t_raw[[3]])
+      temperature = ifelse(t_lim, NA_real_, as.numeric(t_raw[[3]]))
     )
-    t_df <- t_df[!is.na(t_df$DateTime), ]
+    t_df <- t_df[!is.na(t_df$DateTime) & !is.na(t_df$temperature), ]
     
     mti <- merge(p_df, t_df, by = "DateTime", all = TRUE)
     all_data[[length(all_data) + 1]] <- standardize_obs(mti, c("depth", "pressure", "temperature"))
