@@ -19,7 +19,7 @@ to be used in parameter estimation.}
 \item{bound}{is a raster extent object that can be passed in order to 
 restrict the input raster likelihoods to a certain spatial domain. Default 
 is null and thus uses the full extent of input rasters. For more 
-information on the extent object see \code{raster::extent}}
+information on the extent object see \code{terra::ext}}
 }
 \value{
 a list of all resampled likelihood rasters and g, the common grid

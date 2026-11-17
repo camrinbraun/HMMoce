@@ -12,7 +12,7 @@
 #'   function knows where to get the env data.
 #' @param sst.dir local directory where remote sensing SST downloads are stored
 #' @param dateVec is vector of POSIXct dates for each time step of the likelihood
-#' @param focalDim is integer for dimensions of raster::focal used to calculate 
+#' @param focalDim is integer for dimensions of terra::focal used to calculate 
 #'   sd() of env grid cell. If left to NULL (default), this dimension will
 #'   approximately incorporate 0.25 degrees.
 #' @param sens.err is numeric indicating the percent sensor error in the tag sst

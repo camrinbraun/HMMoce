@@ -138,7 +138,7 @@ locs.grid <- setup.locs.grid(sp.lim, res='quarter')
 #  if (!dir.exists(sst.dir)) dir.create(sst.dir, recursive = TRUE)
 #  if (!file.exists(paste0(sst.dir, 'oisst_', udates[1], '.nc'))) get.env(udates[1], filename='oisst', type = 'sst', sst.type='oi', spatLim = sp.lim, save.dir = sst.dir)
 #  
-#  sst <- raster::raster(paste0(sst.dir, 'oisst_', udates[1], '.nc'))
+#  sst <- terra::rast(paste0(sst.dir, 'oisst_', udates[1], '.nc'))
 #  plot(sst, main='Example SST field')
 #  world(add=T)
 
@@ -151,7 +151,7 @@ locs.grid <- setup.locs.grid(sp.lim, res='quarter')
 #  if (!dir.exists(hycom.dir)) dir.create(hycom.dir, recursive = TRUE)
 #  if (!file.exists(paste0(hycom.dir, 'hycom_', udates[1], '.nc'))) get.env(udates[1], filename='hycom', type = 'hycom', spatLim = sp.lim_small, save.dir = hycom.dir)
 #  
-#  b <- raster::brick(paste0(hycom.dir, 'hycom_', udates[1], '.nc'))
+#  b <- terra::rast(paste0(hycom.dir, 'hycom_', udates[1], '.nc'))
 #  
 #  ## plot top 3 depth levels from HYCOM
 #  #par(mfrow=c(3,1))
@@ -212,7 +212,7 @@ locs.grid <- setup.locs.grid(sp.lim, res='quarter')
 #    ## bathymetry based likelihood
 #    ## resample bathy to a more reasonable (coarse) grid for likelihood calculations
 #    ## hi-res bathy grid will work but will take longer
-#    bathy_resamp <- raster::resample(bathy, L.sst) # or whatever grid makes sense to resample to
+#    bathy_resamp <- terra::resample(bathy, L.sst) # or whatever grid makes sense to resample to
 #    L.bathy <- calc.bathy(mmd, bathy_resamp, dateVec, focalDim = 3, sens.err = 5, lik.type = 'dnorm')
 #    L.bathy <- calc.bathy.par(mmd, bathy_resamp, dateVec, focalDim = 3, sens.err = 5, lik.type = 'max', ncores = 4)
 #  
@@ -230,7 +230,7 @@ locs.grid <- setup.locs.grid(sp.lim, res='quarter')
 #  L.rasters <- list(L.light, L.sst, L.ohc)
 #  
 #  ## typically these will need to be resampled to have matching resolution and extent
-#  resamp.idx <- which.max(lapply(L.rasters, FUN=function(x) raster::res(x)[1]))
+#  resamp.idx <- which.max(lapply(L.rasters, FUN=function(x) terra::res(x)[1]))
 #  L.res <- resample.grid(L.rasters, L.rasters[[resamp.idx]])
 #  
 #  ## good idea to save these likelihood rasters at some point to keep from having to re-calculate them if (when) R crashes

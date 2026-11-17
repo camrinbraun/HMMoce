@@ -11,7 +11,7 @@ coarse.L(L, ras.list, aggregate_fact = NULL)
 
 \item{ras.list}{a list of likelihood rasters as input to \code{make.L}. Can also be just one of these raster layers rather than of class "list".}
 
-\item{aggregate_fact}{is \code{fact} input to \code{raster::aggregate}.}
+\item{aggregate_fact}{is \code{fact} input to \code{terra::aggregate}.}
 }
 \description{
 \code{coarse.L} makes a more coarse (aggregated) version of the overall likelihood array (output from \code{make.L}). This results in a coarse version of the overall likelihood grid used for more efficient parameter estimation.

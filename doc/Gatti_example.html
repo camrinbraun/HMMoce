@@ -845,11 +845,11 @@ code > span.fu { color: #900; font-weight: bold; }  code > span.er { color: #a61
 <a class="sourceLine" id="cb1-532" data-line-number="532"><span class="co"># WRITE OUT RESULTS</span></a>
 <a class="sourceLine" id="cb1-533" data-line-number="533"><span class="co">#outVec &lt;- matrix(c(ptt=ptt, minBounds = bnd, migr.spd = i,</span></a>
 <a class="sourceLine" id="cb1-534" data-line-number="534"><span class="co">#                   Lidx = paste(L.idx[[tt]],collapse=''), P1 = P[1,1], P2 = P[2,2],</span></a>
-<a class="sourceLine" id="cb1-535" data-line-number="535"><span class="co">#                   spLims = sp.lim[1:4], resol = raster::res(L.rasters[[resamp.idx]]),</span></a>
+<a class="sourceLine" id="cb1-535" data-line-number="535"><span class="co">#                   spLims = sp.lim[1:4], resol = terra::res(L.rasters[[resamp.idx]]),</span></a>
 <a class="sourceLine" id="cb1-536" data-line-number="536"><span class="co">#                   maskL = maskL, NLL = nllf, name = runName), ncol=15)</span></a>
 <a class="sourceLine" id="cb1-537" data-line-number="537"><span class="co">#write.table(outVec,paste(dataDir, 'outVec_results.csv', sep=''), sep=',', col.names=F, append=T)</span></a>
 <a class="sourceLine" id="cb1-538" data-line-number="538"><span class="co">#names(outVec) &lt;- c('ptt','bnd','migr.spd','Lidx','P1','P2','spLims','resol','maskL','nll','name')</span></a>
-<a class="sourceLine" id="cb1-539" data-line-number="539"><span class="co">#res &lt;- list(outVec = outVec, s = s, g = g, tr = tr, dateVec = dateVec, iniloc = iniloc, grid = raster::res(L.res[[1]]$L.5)[1])</span></a>
+<a class="sourceLine" id="cb1-539" data-line-number="539"><span class="co">#res &lt;- list(outVec = outVec, s = s, g = g, tr = tr, dateVec = dateVec, iniloc = iniloc, grid = terra::res(L.res[[1]]$L.5)[1])</span></a>
 <a class="sourceLine" id="cb1-540" data-line-number="540"><span class="co">#setwd(myDir); save(res, file=dir,paste(runName, '-HMMoce_res.rda', sep=''))</span></a>
 <a class="sourceLine" id="cb1-541" data-line-number="541"><span class="co">#save.image(file=paste(ptt, '-HMMoce.RData', sep=''))</span></a>
 <a class="sourceLine" id="cb1-542" data-line-number="542"><span class="co">#source('~/HMMoce/R/hmm.diagnose.r') # not yet functional</span></a>

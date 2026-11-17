@@ -27,7 +27,7 @@ function knows where to get the env data.}
 
 \item{hycom.dir}{directory of downloaded hycom (or other) data}
 
-\item{focalDim}{is integer for dimensions of raster::focal used to calculate 
+\item{focalDim}{is integer for dimensions of terra::focal used to calculate 
 sd() of temperature grid cell. Recommend focalDim = 9 for Hycom data at 
 0.08deg resolution.}
 

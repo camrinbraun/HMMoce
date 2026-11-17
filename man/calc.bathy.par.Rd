@@ -21,7 +21,7 @@ calc.bathy.par(
 
 \item{dateVec}{is vector of POSIXct dates for each time step of the likelihood}
 
-\item{focalDim}{is integer for dimensions of raster::focal used to calculate
+\item{focalDim}{is integer for dimensions of terra::focal used to calculate
 sd() of env grid cell. If left to NULL (default), this dimension will
 approximately incorporate 0.25 degrees.}
 

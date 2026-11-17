@@ -199,15 +199,15 @@ calc.lik.bottom=FALSE
 if(calc.lik.bottom){
   rm(L.5)
   L.rasters <- mget(ls(pattern = 'L\\.')) # use with caution as all workspace items containing 'L.' will be listed. We only want the likelihood outputs calculated above
-  resamp.idx <- which.max(lapply(L.rasters, FUN=function(x) raster::res(x)[1]))
+  resamp.idx <- which.max(lapply(L.rasters, FUN=function(x) terra::res(x)[1]))
   L.res <- resample.grid(L.rasters, L.rasters[[resamp.idx]])
   
   dim(bathy);res(bathy)
   # aggregate etopo bathy grid 0.08-->.25
-  b2=raster::resample(bathy, L.res[[1]][[1]])
+  b2=terra::resample(bathy, L.res[[1]][[1]])
   dim(b2);res (b2)
   # aggregate etopo bathy grid 0.08-->.25
-  b3=raster::resample(bathy, L.res$L.mle.res)
+  b3=terra::resample(bathy, L.res$L.mle.res)
   dim(b3);res(b3)
   
   # there is probably a way to avoid the loop here
@@ -244,7 +244,7 @@ print("L.5 remove --> no way to display it")
 rm(L.5)
 
 L.rasters <- mget(ls(pattern = 'L\\.')) # use with caution as all workspace items containing 'L.' will be listed. We only want the likelihood outputs calculated above
-resamp.idx <- which.max(lapply(L.rasters, FUN=function(x) raster::res(x)[1]))
+resamp.idx <- which.max(lapply(L.rasters, FUN=function(x) terra::res(x)[1]))
 L.res <- resample.grid(L.rasters, L.rasters[[resamp.idx]])
 
 # Figure out appropriate L combinations
@@ -553,11 +553,11 @@ plotHMM(s, tr, dateVec, ptt=runName, save.plot = F)
 # WRITE OUT RESULTS
 #outVec <- matrix(c(ptt=ptt, minBounds = bnd, migr.spd = i,
 #                   Lidx = paste(L.idx[[tt]],collapse=''), P1 = P[1,1], P2 = P[2,2],
-#                   spLims = sp.lim[1:4], resol = raster::res(L.rasters[[resamp.idx]]),
+#                   spLims = sp.lim[1:4], resol = terra::res(L.rasters[[resamp.idx]]),
 #                   maskL = maskL, NLL = nllf, name = runName), ncol=15)
 #write.table(outVec,paste(dataDir, 'outVec_results.csv', sep=''), sep=',', col.names=F, append=T)
 #names(outVec) <- c('ptt','bnd','migr.spd','Lidx','P1','P2','spLims','resol','maskL','nll','name')
-#res <- list(outVec = outVec, s = s, g = g, tr = tr, dateVec = dateVec, iniloc = iniloc, grid = raster::res(L.res[[1]]$L.5)[1])
+#res <- list(outVec = outVec, s = s, g = g, tr = tr, dateVec = dateVec, iniloc = iniloc, grid = terra::res(L.res[[1]]$L.5)[1])
 #setwd(myDir); save(res, file=dir,paste(runName, '-HMMoce_res.rda', sep=''))
 #save.image(file=paste(ptt, '-HMMoce.RData', sep=''))
 #source('~/HMMoce/R/hmm.diagnose.r') # not yet functional

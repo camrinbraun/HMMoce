@@ -6,7 +6,7 @@
 #' @param mmd is dataframe containing at least cols: "Date" (POSIXct) and "MaxDepth" in meters (positive values are wet)
 #' @param bathy.grid is raster of bathymetry. If the minimum bathymetry values are < 0, the function automatically converts in-water values to positive and masks land.
 #' @param dateVec is vector of POSIXct dates for each time step of the likelihood
-#' @param focalDim is integer for dimensions of raster::focal used to calculate
+#' @param focalDim is integer for dimensions of terra::focal used to calculate
 #'   sd() of env grid cell. If left to NULL (default), this dimension will
 #'   approximately incorporate 0.25 degrees.
 #' @param sens.err is numeric indicating the percent sensor error in the tag-measured max depth. This allows some uncertainty when calculating the integral for the likelihood and doesnt have to necessarily reflect the actual sensor error. Default is 5 percent.

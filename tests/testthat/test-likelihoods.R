@@ -6,13 +6,13 @@ test_that("calc.bathy generates valid likelihood raster brick", {
     MaxDepth = c(50, 150)
   )
   
-  bathy <- raster::raster(xmn = -75, xmx = -70, ymn = 30, ymx = 35, res = 0.5)
-  raster::values(bathy) <- seq(10, 500, length.out = raster::ncell(bathy))
+  bathy <- terra::rast(xmin = -75, xmax = -70, ymin = 30, ymax = 35, res = 0.5)
+  terra::values(bathy) <- seq(10, 500, length.out = terra::ncell(bathy))
   
   l_bathy <- calc.bathy(mmd = mmd, bathy.grid = bathy, dateVec = dates, focalDim = 3)
-  expect_s4_class(l_bathy, "RasterBrick")
-  expect_equal(raster::nlayers(l_bathy), 2)
-  expect_true(raster::cellStats(l_bathy[[1]], max) > 0)
+  expect_s4_class(l_bathy, "SpatRaster")
+  expect_equal(terra::nlyr(l_bathy), 2)
+  expect_true(terra::global(l_bathy[[1]], "max", na.rm = TRUE)[1, 1] > 0)
 })
 
 test_that("setup.locs.grid and calc.lightloc generate longitude/elliptical likelihoods", {
@@ -27,20 +27,20 @@ test_that("setup.locs.grid and calc.lightloc generate longitude/elliptical likel
   )
   
   l_light <- calc.lightloc(lightloc = lightloc, locs.grid = locs.grid, dateVec = dates, errEll = FALSE)
-  expect_s4_class(l_light, "RasterBrick")
-  expect_equal(raster::nlayers(l_light), 2)
-  expect_true(raster::cellStats(l_light[[1]], max) > 0)
+  expect_s4_class(l_light, "SpatRaster")
+  expect_equal(terra::nlyr(l_light), 2)
+  expect_true(terra::global(l_light[[1]], "max", na.rm = TRUE)[1, 1] > 0)
 })
 
 test_that("make.L combines rasters into normalized 3D array", {
   dates <- as.POSIXct(c("2020-01-01 00:00:00", "2020-01-02 00:00:00"), tz = "UTC")
   
-  r1 <- raster::raster(xmn = -75, xmx = -70, ymn = 30, ymx = 35, res = 0.5)
-  raster::values(r1) <- 1
-  b1 <- raster::brick(r1, r1)
+  r1 <- terra::rast(xmin = -75, xmax = -70, ymin = 30, ymax = 35, res = 0.5)
+  terra::values(r1) <- 1
+  b1 <- c(r1, r1)
   
-  bathy <- raster::raster(xmn = -75, xmx = -70, ymn = 30, ymx = 35, res = 0.5)
-  raster::values(bathy) <- 200
+  bathy <- terra::rast(xmin = -75, xmax = -70, ymin = 30, ymax = 35, res = 0.5)
+  terra::values(bathy) <- 200
   
   iniloc <- data.frame(
     year = c(2020, 2020),

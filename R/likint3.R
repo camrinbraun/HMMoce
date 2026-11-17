@@ -3,7 +3,7 @@
 #' #' \code{likint3} calculates density function for a normal distribution and integrates between limits
 #'  
 #' @param w is an array of grid values like sea surface temperature
-#' @param wsd is an array containing the sd of the grid values, usually from \code{raster::focal}
+#' @param wsd is an array containing the sd of the grid values, usually from \code{terra::focal}
 #' @param minT is an integer representing the lower limit of the tag-measured variable (e.g. SST)
 #' @param maxT is an integer representing the upper limit of the tag-measured variable
 #' 

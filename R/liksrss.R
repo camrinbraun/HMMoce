@@ -5,7 +5,7 @@
 #' 
 #' @param obs input light observation. See \code{\link{calc.srss}}
 #' @param srss is raster of possible SR or SS times within study area
-#' @param srsd is raster of SD of SRSS times in study area calculated with \code{raster::focal}
+#' @param srsd is raster of SD of SRSS times in study area calculated with \code{terra::focal}
 #'   
 #' @return an array of SRSS-based likelihoods
 

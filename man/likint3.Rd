@@ -9,7 +9,7 @@ likint3(w, wsd, minT, maxT)
 \arguments{
 \item{w}{is an array of grid values like sea surface temperature}
 
-\item{wsd}{is an array containing the sd of the grid values, usually from \code{raster::focal}}
+\item{wsd}{is an array containing the sd of the grid values, usually from \code{terra::focal}}
 
 \item{minT}{is an integer representing the lower limit of the tag-measured variable (e.g. SST)}
 

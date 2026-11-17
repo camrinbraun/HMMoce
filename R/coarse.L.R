@@ -3,7 +3,7 @@
 #' \code{coarse.L} makes a more coarse (aggregated) version of the overall likelihood array (output from \code{make.L}). This results in a coarse version of the overall likelihood grid used for more efficient parameter estimation.
 #' @param L is overall likelihood array output from \code{make.L}
 #' @param ras.list a list of likelihood rasters as input to \code{make.L}. Can also be just one of these raster layers rather than of class "list".
-#' @param aggregate_fact is \code{fact} input to \code{raster::aggregate}. 
+#' @param aggregate_fact is \code{fact} input to \code{terra::aggregate}. 
 #' @export
 
 coarse.L <- function(L, ras.list, aggregate_fact = NULL){

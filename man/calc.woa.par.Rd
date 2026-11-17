@@ -28,7 +28,7 @@ data from WOA13. See \code{\link{get.env}}.}
 
 \item{sp.lim}{is list of limits as \code{list(xmin, xmax, ymin, ymax)}}
 
-\item{focalDim}{is integer for dimensions of raster::focal used to calculate 
+\item{focalDim}{is integer for dimensions of terra::focal used to calculate 
 sd() of temperature grid cell. Recommend focalDim = 3 if woa.data = woa.one
 and 9 if using woa.quarter.}
 

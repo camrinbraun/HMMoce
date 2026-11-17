@@ -11,7 +11,7 @@ liksrss(obs, srss, srsd)
 
 \item{srss}{is raster of possible SR or SS times within study area}
 
-\item{srsd}{is raster of SD of SRSS times in study area calculated with \code{raster::focal}}
+\item{srsd}{is raster of SD of SRSS times in study area calculated with \code{terra::focal}}
 }
 \value{
 an array of SRSS-based likelihoods

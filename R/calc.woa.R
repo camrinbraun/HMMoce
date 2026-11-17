@@ -17,7 +17,7 @@
 #' @param ptt is unique tag identifier
 #' @param woa.data is (typically) a list of monthly global 1/4deg climatology
 #'   data from WOA13. See \code{\link{get.env}}.
-#' @param focalDim is integer for dimensions of raster::focal used to calculate 
+#' @param focalDim is integer for dimensions of terra::focal used to calculate 
 #'   sd() of temperature grid cell. Recommend focalDim = 3 if woa.data = woa.one
 #'   and 9 if using woa.quarter.
 #' @param dateVec is vector of POSIXct dates for each time step of the likelihood
