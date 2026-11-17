@@ -52,7 +52,6 @@ Authors:
   \item Benjamin Galuardi \email{drdrumfish@gmail.com}
   \item Paul Gatti \email{Paul.Gatti@mi.mun.ca}
   \item Martin C. Arostegui \email{martin.arostegui@whoi.edu} (https://www.whoi.edu/profile/martin.arostegui/)
-  \item Martin C. Arostegui \email{martin.arostegui@whoi.edu} (https://www.whoi.edu/profile/martin.arostegui/)
 }
 
 Other contributors:

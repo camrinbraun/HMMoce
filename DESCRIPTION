@@ -4,11 +4,11 @@ Title: Improved Analysis of Marine Animal Movement Data Using Hidden Markov
     Models
 Version: 2.0.0
 Date: 2026-11-13
+Encoding: UTF-8
 Authors@R: c(
               person("Camrin", "Braun", email = "camrin.braun@gmail.com", role = c("aut","cre")),
               person("Benjamin", "Galuardi", email = "drdrumfish@gmail.com", role = c("aut")),
               person("Paul", "Gatti", email = "Paul.Gatti@mi.mun.ca", role = c("aut")),
-              person("Martin", "Arostegui", middle = "C.", email = "martin.arostegui@whoi.edu", role = c("aut"), comment = "https://www.whoi.edu/profile/martin.arostegui/"),
               person(given = c("Martin", "C."), family = "Arostegui", email = "martin.arostegui@whoi.edu", role = c("aut"), comment = "https://www.whoi.edu/profile/martin.arostegui/"),
               person("Benjamin", "Jones", role = c("ctb"), comment = 'Contributed to earlier version of some of the download functions.'),
               person("Martin", "Pedersen", role = c("ctb"), comment = 'Developed an earlier version of some of the HMM framework and helper functions.')
